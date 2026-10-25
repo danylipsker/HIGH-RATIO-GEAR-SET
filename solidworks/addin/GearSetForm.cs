@@ -1,12 +1,15 @@
-// Dialog, in the order the user works: 1 module, 2 gear ratio, 3 Find solutions -> the table of
-// every tooth set that gives the ratio (best first) -> everything below follows the row picked:
-// the dimensions, the folder, Build. The search range and the rarely needed inputs (an exact tooth
-// set, presets, max ring OD, face width, backlash, root fillet) are under "Advanced", folded.
+// Dialog: the table of solutions on top (empty until the user asks), then the three inputs - module,
+// gear ratio, Find solutions - then everything that follows the row picked in the table: the
+// dimensions, the folder, Build. A ratio no set reaches exactly fills the table with the nearest
+// reachable sets, widening the search range on its own (sun to 60, planet from 10, rings up to 6
+// teeth apart) and saying so. The search range and the rarely needed inputs (an exact tooth set,
+// presets, max ring OD, face width, backlash, root fillet) are under "Advanced", folded, at the bottom.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
@@ -24,9 +27,11 @@ namespace GearSet
 
         private readonly string _root, _outputBase;
         // the three inputs
-        private readonly TextBox _module = new TextBox { Width = 64, Text = "1", Font = new Font("Segoe UI", 11f) };
-        private readonly TextBox _ratio = new TextBox { Width = 96, Text = "500", Font = new Font("Segoe UI", 11f) };
+        private readonly TextBox _module = new TextBox { Width = 64, Text = "", Font = new Font("Segoe UI", 11f) };
+        private readonly TextBox _ratio = new TextBox { Width = 96, Text = "", Font = new Font("Segoe UI", 11f) };
         private readonly Button _find = new Button { Text = "3.  Find solutions", Width = 150, Height = 32, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+        private readonly Label _tableTitle = new Label { Text = "Solutions", AutoSize = true, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold), Margin = new Padding(0, 0, 8, 0) };
+        private readonly Label _tableHint = new Label { Text = "empty until you type the module and the gear ratio below and press Find solutions; then every tooth set that gives the ratio, best first - pick a row, the rest follows it", AutoSize = true, ForeColor = Color.DimGray, Margin = new Padding(0, 4, 0, 0), MaximumSize = new Size(760, 0) };
         private readonly Label _status = new Label { AutoSize = true, ForeColor = Color.DimGray, MaximumSize = new Size(900, 0) };
         // advanced: search range and design rules
         private readonly CheckBox _advanced = new CheckBox { Text = "Advanced: search range, design rules, exact tooth set, presets", AutoSize = true, Appearance = Appearance.Normal, ForeColor = Color.FromArgb(0x1F, 0x4E, 0x9A) };
@@ -42,7 +47,7 @@ namespace GearSet
         private readonly TextBox _faceWidth = new TextBox { Width = 56 };
         private readonly TextBox _backlash = new TextBox { Width = 56, Text = "0" };
         private readonly TextBox _fillet = new TextBox { Width = 44, Text = "0.3" };
-        private readonly CheckBox _nearest = new CheckBox { Text = "when no exact set exists, list the nearest ratios (within 15 %)", AutoSize = true, Checked = true };
+        private readonly CheckBox _nearest = new CheckBox { Text = "when no exact set exists, widen the search (sun to 60, planet from 10, rings up to 6 apart) and list the nearest ratios", AutoSize = true, Checked = true };
         // the table and what follows it
         private readonly ListView _list = new ListView
         {
@@ -60,12 +65,13 @@ namespace GearSet
         private readonly Button _browse = new Button { Text = "...", Width = 32 };
         private readonly Button _build = new Button { Text = "Build SOLIDWORKS files", Width = 190, Height = 32, Enabled = false, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
         private readonly Button _close = new Button { Text = "Close", Width = 90, Height = 32, DialogResult = DialogResult.Cancel };
-        private readonly Label _pickedTitle = new Label { Text = "5.  The picked solution", AutoSize = true, Font = new Font("Segoe UI", 9f, FontStyle.Bold), Margin = new Padding(0, 6, 6, 0) };
+        private readonly Label _pickedTitle = new Label { Text = "4.  The picked solution", AutoSize = true, Font = new Font("Segoe UI", 9f, FontStyle.Bold), Margin = new Padding(0, 6, 6, 0) };
         private readonly ToolTip _tips = new ToolTip { AutoPopDelay = 12000, InitialDelay = 400 };
 
         private List<Candidate> _candidates = new List<Candidate>();
         private Ratio _target;
         private bool _givenSet;
+        private int _searchGeneration;
 
         /// <param name="root">folder of gearset.py (default output goes to root\output), may be null</param>
         /// <param name="outputBase">when given, new sets go to outputBase\&lt;set name&gt; (e.g. a parts library)</param>
@@ -83,17 +89,40 @@ namespace GearSet
             AcceptButton = _find;
 
             var rootPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(12) };
+            rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // table heading
+            rootPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 56));   // the table
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // 1 2 3
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // status
-            rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // advanced toggle
-            rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // advanced panel
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // 4 heading
-            rootPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 58));   // table
-            rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // 5 heading
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // options
-            rootPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 42));   // dimensions
+            rootPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 44));   // dimensions
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // folder
-            rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // buttons
+            rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // buttons + advanced toggle
+            rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // advanced panel
+
+            // ---- the table, first --------------------------------------------------------------------
+            var headT = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
+            headT.Controls.Add(_tableTitle);
+            headT.Controls.Add(_tableHint);
+            rootPanel.Controls.Add(headT);
+            _list.Columns.Add("#", 34);
+            _list.Columns.Add("Sun", 46);
+            _list.Columns.Add("Planet", 52);
+            _list.Columns.Add("Ring int", 62);
+            _list.Columns.Add("Ring ext", 62);
+            _list.Columns.Add("Fixed", 52);
+            _list.Columns.Add("Output", 56);
+            _list.Columns.Add("Ratio", 86);
+            _list.Columns.Add("Sense", 60);
+            _list.Columns.Add("α_w °", 50);
+            _list.Columns.Add("Shift x", 56);
+            _list.Columns.Add("Wall mm", 62);
+            _list.Columns.Add("Ring OD mm", 82);
+            _list.Columns.Add("Overall mm", 82);
+            _list.Columns.Add("Note", 260);
+            var listHost = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 8) };
+            listHost.Controls.Add(_list);
+            rootPanel.Controls.Add(listHost);
 
             // ---- 1, 2, 3 on one line -------------------------------------------------------------
             var row1 = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
@@ -107,10 +136,34 @@ namespace GearSet
             _status.Margin = new Padding(2, 6, 0, 0);
             rootPanel.Controls.Add(_status);
 
-            // ---- advanced (folded) ----------------------------------------------------------------
-            _advanced.Margin = new Padding(0, 6, 0, 0);
-            rootPanel.Controls.Add(_advanced);
-            var adv = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Top, Margin = new Padding(0), Padding = new Padding(8, 4, 8, 6), BackColor = Color.FromArgb(0xF3, 0xF4, 0xF6) };
+            // ---- 4 what follows the picked row ---------------------------------------------------
+            _pickedTitle.Margin = new Padding(0, 10, 6, 0);
+            rootPanel.Controls.Add(_pickedTitle);
+            var optRow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
+            _mates.Margin = new Padding(0, 2, 24, 0); _housing.Margin = new Padding(0, 2, 0, 0);
+            optRow.Controls.Add(_mates);
+            optRow.Controls.Add(_housing);
+            rootPanel.Controls.Add(optRow);
+            var dimHost = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 6) };
+            dimHost.Controls.Add(_dims);
+            rootPanel.Controls.Add(dimHost);
+
+            var folderRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top };
+            folderRow.Controls.Add(Bold("Folder for the .SLDPRT / .SLDASM files"));
+            _folder.Margin = new Padding(0, 3, 3, 0); folderRow.Controls.Add(_folder);
+            folderRow.Controls.Add(_browse);
+            rootPanel.Controls.Add(folderRow);
+
+            var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top, Margin = new Padding(0, 8, 0, 0) };
+            buttons.Controls.Add(_build);
+            _close.Margin = new Padding(8, 0, 24, 0);
+            buttons.Controls.Add(_close);
+            _advanced.Margin = new Padding(0, 8, 0, 0);
+            buttons.Controls.Add(_advanced);
+            rootPanel.Controls.Add(buttons);
+
+            // ---- advanced (folded, at the bottom) ------------------------------------------------
+            var adv = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Top, Margin = new Padding(0, 6, 0, 0), Padding = new Padding(8, 4, 8, 6), BackColor = Color.FromArgb(0xF3, 0xF4, 0xF6) };
             var advRange = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
             advRange.Controls.Add(Bold("Search range:"));
             advRange.Controls.Add(Plain("sun teeth")); advRange.Controls.Add(_sunMin); advRange.Controls.Add(Plain("to")); advRange.Controls.Add(_sunMax);
@@ -139,53 +192,6 @@ namespace GearSet
             _advancedPanel.Controls.Add(adv);
             rootPanel.Controls.Add(_advancedPanel);
             _advanced.CheckedChanged += (s, e) => { _advancedPanel.Visible = _advanced.Checked; };
-
-            // ---- 4 the table ---------------------------------------------------------------------
-            var head4 = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top, Margin = new Padding(0, 8, 0, 0) };
-            head4.Controls.Add(Bold("4.  Pick a solution"));
-            head4.Controls.Add(Plain("every tooth set that gives the ratio, best first; the rows below the table follow the one you pick; double-click builds it"));
-            rootPanel.Controls.Add(head4);
-            _list.Columns.Add("#", 34);
-            _list.Columns.Add("Sun", 46);
-            _list.Columns.Add("Planet", 52);
-            _list.Columns.Add("Ring int", 62);
-            _list.Columns.Add("Ring ext", 62);
-            _list.Columns.Add("Fixed", 52);
-            _list.Columns.Add("Output", 56);
-            _list.Columns.Add("Ratio", 86);
-            _list.Columns.Add("Sense", 60);
-            _list.Columns.Add("α_w °", 50);
-            _list.Columns.Add("Shift x", 56);
-            _list.Columns.Add("Wall mm", 62);
-            _list.Columns.Add("Ring OD mm", 82);
-            _list.Columns.Add("Overall mm", 82);
-            _list.Columns.Add("Note", 260);
-            var listHost = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 6) };
-            listHost.Controls.Add(_list);
-            rootPanel.Controls.Add(listHost);
-
-            // ---- 5 what follows ------------------------------------------------------------------
-            rootPanel.Controls.Add(_pickedTitle);
-            var optRow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
-            _mates.Margin = new Padding(0, 2, 24, 0); _housing.Margin = new Padding(0, 2, 0, 0);
-            optRow.Controls.Add(_mates);
-            optRow.Controls.Add(_housing);
-            rootPanel.Controls.Add(optRow);
-            var dimHost = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 6) };
-            dimHost.Controls.Add(_dims);
-            rootPanel.Controls.Add(dimHost);
-
-            var folderRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top };
-            folderRow.Controls.Add(Bold("Folder for the .SLDPRT / .SLDASM files"));
-            _folder.Margin = new Padding(0, 3, 3, 0); folderRow.Controls.Add(_folder);
-            folderRow.Controls.Add(_browse);
-            rootPanel.Controls.Add(folderRow);
-
-            var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top, Margin = new Padding(0, 8, 0, 0) };
-            buttons.Controls.Add(_build);
-            _close.Margin = new Padding(8, 0, 0, 0);
-            buttons.Controls.Add(_close);
-            rootPanel.Controls.Add(buttons);
             Controls.Add(rootPanel);
 
             // ---- tips and events -----------------------------------------------------------------
@@ -236,7 +242,7 @@ namespace GearSet
                 tb.TextChanged += (s, e) => { if (_candidates.Count > 0) UpdateDimensions(); };
 
             LoadLast();
-            Shown += (s, e) => { _ratio.Focus(); _ratio.SelectAll(); FindSolutions(); };
+            Shown += (s, e) => { _module.Focus(); Status("Type the module and the gear ratio, then Find solutions.", false); };
         }
 
         private static Label Big(string t) { return new Label { Text = t, AutoSize = true, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold), Margin = new Padding(0, 6, 8, 0) }; }
@@ -291,49 +297,82 @@ namespace GearSet
                 _target = Ratio.Normalize(Math.Abs(des.RatioNum), Math.Abs(des.RatioDen));
                 _ratio.Text = Math.Abs(des.RatioValue).ToString("0.###", CultureInfo.InvariantCulture);
                 _candidates = new List<Candidate> { new Candidate { Design = des, Error = 0, Score = 0 } };
+                _tableTitle.Text = "Your tooth set";
                 FillList();
                 if (why != null) Fail("Your set: " + why + " - it is listed anyway, build at your own risk.");
                 else Status("Your tooth set, ratio " + des.RatioText + ". Clear the set under Advanced to search by ratio again.", false);
                 return;
             }
             if (!Ratio.TryParse(_ratio.Text, out _target)) { Fail("2. Enter the gear ratio as a number (500, 528.69) or a fraction (1000/3)."); return; }
-            Cursor = Cursors.WaitCursor;
-            try
+            int? sun = Int(_sun), planet = Int(_planet);
+            bool widen = _nearest.Checked;
+            Ratio target = _target;
+            int gen = ++_searchGeneration;
+            Cursor = Cursors.WaitCursor; _find.Enabled = false;
+            _tableTitle.Text = "Solutions for 1 : " + target.Value.ToString("0.###", CultureInfo.InvariantCulture);
+            Status("Searching the tooth sets for 1:" + target.Value.ToString("0.###", CultureInfo.InvariantCulture) + " ...", false);
+            Task.Run(() => StagedSearch(target, lim, sun, planet, widen)).ContinueWith(t =>
             {
-                int? sun = Int(_sun), planet = Int(_planet);
-                _candidates = Solver.Search(_target, lim, sun, planet, true, 40);
-                bool exact = _candidates.Count > 0;
-                List<Candidate> near = null;
-                if (!exact)
-                {
-                    near = Solver.Search(_target, lim, sun, planet, false, 40);
-                    _candidates = _nearest.Checked ? near.FindAll(c => c.Error <= NearestWindow) : new List<Candidate>();
-                }
-                FillList();
-                string tgt = _target.Value.ToString("0.###", CultureInfo.InvariantCulture);
-                string range = (sun.HasValue || planet.HasValue)
-                    ? " with the sun / planet forced to " + (sun.HasValue ? sun.Value.ToString() : "free") + " / " + (planet.HasValue ? planet.Value.ToString() : "free")
-                    : " (sun " + lim.SunMin + ".." + lim.SunMax + ", planet " + lim.PlanetMin + ".." + lim.PlanetMax + ", rings up to " + lim.DeltaMax + " teeth apart)";
-                if (exact)
-                    Status("Exact 1:" + tgt + ": " + _list.Items.Count + " tooth set" + (_list.Items.Count == 1 ? "" : "s") + range
-                        + (_list.Items.Count < _candidates.Count ? ", " + (_candidates.Count - _list.Items.Count) + " more over the ring OD limit" : "") + ". Pick one in the table.", false);
-                else if (_list.Items.Count > 0)
-                    Status("No set gives exactly 1:" + tgt + range + "; the " + _list.Items.Count + " nearest within 15 % are listed, the error in the Note column. "
-                        + "Under Advanced you can widen the sun range or free the forced counts.", true);
-                else
-                {
-                    string reach = "";
-                    if (near != null && near.Count > 0)
-                    {
-                        double lo = double.MaxValue, hi = 0;
-                        foreach (var c in near) { double v = Math.Abs(c.Design.RatioValue); if (v < lo) lo = v; if (v > hi) hi = v; }
-                        reach = " The closest this mechanism reaches" + range + " is 1:" + (Math.Abs(lo - _target.Value) < Math.Abs(hi - _target.Value) ? lo : hi).ToString("0.#", CultureInfo.InvariantCulture) + ".";
-                    }
-                    Fail("No tooth set gives 1:" + tgt + " within 15 %" + range + "." + reach
-                        + " Ratios under about 1:200 are not this mechanism's: use a planetary or compound planetary set. Otherwise, under Advanced, raise the sun range (to 40..60) or the ring tooth difference, or free the forced counts.");
-                }
-            }
-            finally { Cursor = Cursors.Default; }
+                if (gen != _searchGeneration || IsDisposed) return;
+                Cursor = Cursors.Default; _find.Enabled = true;
+                if (t.IsFaulted) { Fail("Search failed: " + (t.Exception != null ? t.Exception.GetBaseException().Message : "?")); return; }
+                ShowSearch(t.Result, lim, sun, planet);
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
+
+        private sealed class SearchResult
+        {
+            public List<Candidate> Hits = new List<Candidate>();
+            public bool Exact, Widened;
+            public Limits Used;
+            public double ClosestRatio = double.NaN;      // of every reachable set, when nothing is exact
+        }
+
+        /// <summary>Exact sets within the range as typed; failing that, exact sets in the widened range;
+        /// failing that, the nearest ratios in the widened range (best first). Runs off the UI thread.</summary>
+        private static SearchResult StagedSearch(Ratio target, Limits lim, int? sun, int? planet, bool widen)
+        {
+            var r = new SearchResult { Used = lim };
+            r.Hits = Solver.Search(target, lim, sun, planet, true, 40);
+            if (r.Hits.Count > 0) { r.Exact = true; return r; }
+            if (!widen) return r;
+            var wide = new Limits
+            {
+                SunMin = Math.Min(lim.SunMin, 12), SunMax = Math.Max(lim.SunMax, 60), PlanetMin = Math.Min(lim.PlanetMin, 10), PlanetMax = lim.PlanetMax,
+                EccMin = lim.EccMin, EccMax = Math.Max(lim.EccMax, 100), WallMinMod = lim.WallMinMod, WallMaxTeeth = lim.WallMaxTeeth,
+                DeltaMax = Math.Max(lim.DeltaMax, 6), AwMinDeg = lim.AwMinDeg, AwMaxDeg = lim.AwMaxDeg, PressureAngleDeg = lim.PressureAngleDeg,
+                Addendum = lim.Addendum, Clearance = lim.Clearance,
+            };
+            r.Used = wide; r.Widened = true;
+            r.Hits = Solver.Search(target, wide, sun, planet, true, 40);
+            if (r.Hits.Count > 0) { r.Exact = true; return r; }
+            r.Hits = Solver.Search(target, wide, sun, planet, false, 40);
+            double best = double.NaN, bestErr = double.MaxValue;
+            foreach (var c in r.Hits) if (c.Error < bestErr) { bestErr = c.Error; best = Math.Abs(c.Design.RatioValue); }
+            r.ClosestRatio = best;
+            return r;
+        }
+
+        private void ShowSearch(SearchResult r, Limits asked, int? sun, int? planet)
+        {
+            _candidates = r.Hits;
+            FillList();
+            string tgt = _target.Value.ToString("0.###", CultureInfo.InvariantCulture);
+            string forced = (sun.HasValue || planet.HasValue)
+                ? " with the sun / planet forced to " + (sun.HasValue ? sun.Value.ToString() : "free") + " / " + (planet.HasValue ? planet.Value.ToString() : "free") : "";
+            string range = " (sun " + r.Used.SunMin + ".." + r.Used.SunMax + ", planet " + r.Used.PlanetMin + ".." + r.Used.PlanetMax + ", rings up to " + r.Used.DeltaMax + " teeth apart" + forced + ")";
+            string odNote = _list.Items.Count < _candidates.Count ? ", " + (_candidates.Count - _list.Items.Count) + " more over the ring OD limit" : "";
+            if (r.Exact && !r.Widened)
+                Status("Exact 1:" + tgt + ": " + _list.Items.Count + " tooth set" + (_list.Items.Count == 1 ? "" : "s") + range + odNote + ". Pick one in the table.", false);
+            else if (r.Exact)
+                Status("Exact 1:" + tgt + " needs a wider search than the range under Advanced: " + _list.Items.Count + " set" + (_list.Items.Count == 1 ? "" : "s") + range + odNote
+                    + ". A sun over 30 or a planet under 12 teeth is unusual: check the Note column.", false);
+            else if (_list.Items.Count > 0)
+                Status("No tooth set gives exactly 1:" + tgt + ", even" + range + ". The table lists the nearest ratios this mechanism reaches, closest first"
+                    + " (the error in the Note column); the closest is 1:" + r.ClosestRatio.ToString("0.#", CultureInfo.InvariantCulture) + "."
+                    + (_target.Value < r.ClosestRatio ? " Ratios under about 1:165 are below what a 3K floating-ring set can do: a planetary or compound planetary set is the right choice there." : ""), true);
+            else
+                Fail("No tooth set gives 1:" + tgt + range + ". Tick 'widen the search' under Advanced, free the forced counts, or raise the max pressure angle.");
         }
 
         private void FillList()
@@ -367,7 +406,10 @@ namespace GearSet
             }
             _list.EndUpdate();
             if (_list.Items.Count > 0) { _list.Items[0].Selected = true; _list.Items[0].Focused = true; UpdateDimensions(); }
-            else { _dims.Text = ""; _build.Enabled = false; _pickedTitle.Text = "5.  The picked solution"; }
+            else { _dims.Text = ""; _build.Enabled = false; _pickedTitle.Text = "4.  The picked solution"; }
+            _tableHint.Text = _list.Items.Count > 0
+                ? _list.Items.Count + " row" + (_list.Items.Count == 1 ? "" : "s") + ", best first - pick one, the rest of the dialog follows it; double-click builds it"
+                : "empty until you type the module and the gear ratio below and press Find solutions; then every tooth set that gives the ratio, best first - pick a row, the rest follows it";
         }
 
         private GearModel QuickModel(Design d, double m)
@@ -391,9 +433,9 @@ namespace GearSet
         private void UpdateDimensions()
         {
             var c = Current;
-            if (c == null) { _dims.Text = ""; _build.Enabled = false; _pickedTitle.Text = "5.  The picked solution"; return; }
+            if (c == null) { _dims.Text = ""; _build.Enabled = false; _pickedTitle.Text = "4.  The picked solution"; return; }
             var g = QuickModel(c.Design, Module);
-            _pickedTitle.Text = "5.  The picked solution: row " + (_list.SelectedItems[0].Index + 1) + ", teeth " + c.Design.TeethText + ", ratio " + c.Design.RatioText;
+            _pickedTitle.Text = "4.  The picked solution: row " + (_list.SelectedItems[0].Index + 1) + ", teeth " + c.Design.TeethText + ", ratio " + c.Design.RatioText;
             _dims.Text = g.DimensionsText().Replace("\n", "\r\n").Replace("\r\r", "\r");
             _build.Enabled = true;
             string baseFolder = _folder.Tag as string ?? DefaultFolder();
@@ -444,8 +486,6 @@ namespace GearSet
                 using (var k = Registry.CurrentUser.OpenSubKey(RegistryKey))
                 {
                     if (k == null) return;
-                    _module.Text = (k.GetValue("LastModule") as string) ?? _module.Text;
-                    _ratio.Text = (k.GetValue("LastRatio") as string) ?? _ratio.Text;
                     _faceWidth.Text = (k.GetValue("LastFaceWidth") as string) ?? "";
                     _backlash.Text = (k.GetValue("LastBacklash") as string) ?? _backlash.Text;
                     _sunMax.Text = (k.GetValue("LastSunMax") as string) ?? _sunMax.Text;
