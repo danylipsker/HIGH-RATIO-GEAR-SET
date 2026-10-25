@@ -122,7 +122,7 @@ a **Gear Set** tab appears with *Create gear set...*:
    Planes coincident for the axial positions, concentric mates on the sun shaft, carrier pin, carrier
    journal and ring cylinders, and four gear mates that tie carrier, planet, thin ring and output ring
    to the sun with their exact speed ratios (for 1:500: 0.15, 0.87, 0.05 and 0.002 turns per sun turn).
-   Drag the sun, or add a rotary motor to it in a Motion Study: ten sun turns give 7.2° on the output
+   Drag the sun, or play the Motion Study "Sun drive" the build adds (rotary motor on the sun, 60 rpm for 10 s; Calculate first): ten sun turns give 7.2° on the output
    ring, opposite direction. (SOLIDWORKS gear mates work in the assembly frame, which is why the parts
    are geared to the sun with absolute ratios rather than to each other with tooth counts.)
 

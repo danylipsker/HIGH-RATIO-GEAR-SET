@@ -177,7 +177,7 @@ namespace GearSet
                 foreach (string line in r.MateReport) Log("mate: " + line);
                 try { using (var k = Registry.CurrentUser.CreateSubKey(GearSetForm.RegistryKey)) if (k != null) k.SetValue("LastFolder", r.Folder); } catch { }
                 string mateText = !addMates ? "No mates added (unticked)." :
-                    r.MatesAdded == r.MatesWanted ? "Mates: all " + r.MatesAdded + " added - drag the sun to animate, or put a rotary motor on it in a Motion Study."
+                    r.MatesAdded == r.MatesWanted ? "Mates: all " + r.MatesAdded + " added - drag the sun to animate." + (r.MotionStudy != null ? "\n" + r.MotionStudy : "")
                                                   : "Mates: " + r.MatesAdded + " of " + r.MatesWanted + " added:\n" + string.Join("\n", r.MateReport.ToArray());
                 message = "Gear set " + model.Name + " built.\n\n" + string.Join("\n", r.Files.ConvertAll(p => Path.GetFileName(p)).ToArray())
                         + "\n\nin " + r.Folder + "\n\n" + mateText + "\n\n" + model.DimensionsText();

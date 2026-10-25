@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 
@@ -21,6 +22,7 @@ namespace GearSet
         public string Folder;
         public int MatesAdded, MatesWanted;
         public List<string> MateReport = new List<string>();
+        public string MotionStudy;              // what the Motion Study got, null = none
     }
 
     public class GearBuilder
@@ -32,6 +34,11 @@ namespace GearSet
         private short _arcCcw = 1;
         public Action<string> Progress = s => { };
         public List<string> Log = new List<string>();
+        /// <summary>After the mates: a Motion Study "Sun drive" with a constant-speed rotary motor on the sun's
+        /// input stub. 60 rpm for 10 s = 10 sun turns: 7.2 degrees on the output ring of the 1:500 set.</summary>
+        public bool AddMotor = true;
+        public double MotorRpm = 60, MotorSeconds = 10;
+        private IFace2 _sunFace;                    // the sun's input stub, found by AddMates, the motor's face
 
         public GearBuilder(ISldWorks sw)
         {
@@ -285,6 +292,7 @@ namespace GearSet
             {
                 try { AddMates(asmDoc, g, comps, res); }
                 catch (Exception ex) { res.MateReport.Add("mates aborted: " + ex.Message); Log.Add("mates aborted: " + ex); }
+                AddMotionStudy(asmDoc, res);
             }
             try
             {
@@ -329,6 +337,7 @@ namespace GearSet
             IFace2 fFixed = FindCylinder(c["FixedRing"], g.RingOuterR, g.ZA0, g.ZA1, tol, "fixed ring outer");
             IFace2 fOut = FindCylinder(c["OutputRing"], g.RingOuterR, g.ZB0, g.ZB1, tol, "output ring outer");
             IFace2 fSun = FindCylinder(c["Sun"], g.ShaftD / 2, -g.ShaftIn, 0, tol, "sun shaft (input stub)");
+            _sunFace = fSun;
             IFace2 fCarBore = FindCylinder(c["Carrier"], g.CarrierBoreR, g.ZB0, g.ZB1, tol, "carrier bore");
             IFace2 fPin = FindCylinder(c["Carrier"], g.PinD / 2, g.ZA0, g.ZB0, tol, "carrier pin");
             IFace2 fJournal = FindCylinder(c["Carrier"], g.JournalR, g.ZB0, g.ZB1, tol, "carrier journal");
@@ -456,9 +465,78 @@ namespace GearSet
             catch (Exception ex) { res.MateReport.Add("unfix: " + ex.Message); }
 
             AddMates(asmDoc, g, found, res);
+            AddMotionStudy(asmDoc, res);
             asmDoc.ClearSelection2(true);
             try { asmDoc.ForceRebuild3(false); } catch { }
             return res;
+        }
+
+        // ------------------------------------------------------------------------------ motion study
+        // The swmotionstudy interop is driven late-bound (IDispatch through dynamic), so the add-in needs no
+        // reference to SolidWorks.Interop.swmotionstudy.dll: IModelDocExtension.GetMotionStudyManager ->
+        // IMotionStudyManager.CreateMotionStudy -> IMotionStudy.Activate / SetDuration / CreateMotor(motorType,
+        // motionType, speed) on the pre-selected face (the sun's input stub). The enum values are read from the
+        // installed interop assembly when it can be found, else the documented ones (rotary 1, constant speed 1).
+        private void AddMotionStudy(IModelDoc2 asmDoc, BuildResult res)
+        {
+            if (!AddMotor) return;
+            if (_sunFace == null) { res.MateReport.Add("motion study: skipped (sun shaft face not found)"); return; }
+            try
+            {
+                dynamic mgr = asmDoc.Extension.GetMotionStudyManager();
+                if (mgr == null) { res.MateReport.Add("motion study: no MotionStudyManager (SOLIDWORKS Motion not loaded?)"); return; }
+                dynamic study = mgr.CreateMotionStudy();
+                if (study == null) { res.MateReport.Add("motion study: CreateMotionStudy returned nothing"); return; }
+                try { study.Name = "Sun drive"; } catch (Exception ex) { Log.Add("motion study name: " + ex.Message); }
+                try { study.Activate(); } catch (Exception ex) { Log.Add("motion study activate: " + ex.Message); }
+                try { study.SetDuration(MotorSeconds); } catch (Exception ex) { Log.Add("motion study duration: " + ex.Message); }
+
+                asmDoc.ClearSelection2(true);
+                SelectData data = (SelectData)((ISelectionMgr)asmDoc.SelectionManager).CreateSelectData();
+                data.Mark = 0;
+                if (!((Entity)_sunFace).Select4(false, data)) { res.MateReport.Add("motion study: could not select the sun shaft face"); return; }
+                int rotary = MotionEnum("swMotorType_e", "swRotaryMotor", 1);
+                int constant = MotionEnum("swMotorMotionType_e", "swMotorConstantSpeed", 1);
+                object motor = null;
+                try { motor = study.CreateMotor(rotary, constant, (double)MotorRpm); }
+                catch (Exception ex)
+                {
+                    Log.Add("CreateMotor(double): " + ex.Message);
+                    try { motor = study.CreateMotor(rotary, constant, MotorRpm.ToString(CultureInfo.InvariantCulture)); }
+                    catch (Exception ex2) { Log.Add("CreateMotor(string): " + ex2.Message); }
+                }
+                asmDoc.ClearSelection2(true);
+                if (motor == null) { res.MateReport.Add("motion study 'Sun drive' created, but the motor was not (see the log)"); return; }
+                double turns = MotorRpm * MotorSeconds / 60.0;
+                res.MotionStudy = string.Format(CultureInfo.InvariantCulture,
+                    "Motion Study 'Sun drive': rotary motor on the sun, {0:0.#} rpm for {1:0.#} s = {2:0.#} sun turns (Calculate, then play)",
+                    MotorRpm, MotorSeconds, turns);
+                res.MateReport.Add(res.MotionStudy);
+            }
+            catch (Exception ex) { res.MateReport.Add("motion study: " + ex.Message); Log.Add("motion study: " + ex); }
+        }
+
+        /// <summary>A value of the swmotionstudy interop's enums, from the installed assembly (next to
+        /// SLDWORKS.exe, in its api\redist, or in the GAC); the fallback when it cannot be loaded.</summary>
+        private int MotionEnum(string enumName, string member, int fallback)
+        {
+            try
+            {
+                Assembly asm = null;
+                string exeDir = null;
+                try { exeDir = Path.GetDirectoryName(System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName); } catch { }
+                if (exeDir != null)
+                    foreach (string candidate in new[] { Path.Combine(exeDir, "SolidWorks.Interop.swmotionstudy.dll"), Path.Combine(exeDir, "api", "redist", "SolidWorks.Interop.swmotionstudy.dll") })
+                        if (asm == null && File.Exists(candidate)) { try { asm = Assembly.LoadFrom(candidate); } catch { } }
+#pragma warning disable 618
+                if (asm == null) { try { asm = Assembly.LoadWithPartialName("SolidWorks.Interop.swmotionstudy"); } catch { } }
+#pragma warning restore 618
+                if (asm == null) { Log.Add("motion study: interop enums not found, using " + member + " = " + fallback); return fallback; }
+                Type t = asm.GetType("SolidWorks.Interop.swmotionstudy." + enumName, false);
+                if (t == null) return fallback;
+                return Convert.ToInt32(Enum.Parse(t, member), CultureInfo.InvariantCulture);
+            }
+            catch { return fallback; }
         }
 
         /// <summary>Gear mate sun -> part with |ratio| = spin of the part per spin of the sun; sign = direction.</summary>

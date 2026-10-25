@@ -82,6 +82,7 @@ namespace SolidWorks.Interop.sldworks
     public interface IModelDocExtension
     {
         CustomPropertyManager get_CustomPropertyManager(string configuration);
+        object GetMotionStudyManager();
         bool SaveAs3(string name, int version, int options, object exportData, object advancedSaveAsOptions, ref int errors, ref int warnings);
     }
     public interface ModelDocExtension : IModelDocExtension { }
