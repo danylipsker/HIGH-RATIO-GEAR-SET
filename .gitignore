@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+# native SolidWorks files are produced by the macro next to each set; version them if you want
+# *.SLDPRT
+# *.SLDASM
+~$*

@@ -1,0 +1,171 @@
+{
+  "design": {
+    "Zs": 16,
+    "Zp": 32,
+    "Zr1": 115,
+    "Zr2": 123,
+    "Zf": 158,
+    "Zo": 155,
+    "shifted": "output",
+    "alpha_deg": 20.0,
+    "addendum": 1.0,
+    "clearance": 0.25
+  },
+  "ratio": "-1560695/2952",
+  "module": 1.25,
+  "face_width": 12.5,
+  "gap": 2.0,
+  "layout": {
+    "a1": 30.0,
+    "e": 21.875,
+    "sun_pos": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "planet_pos": [
+      30.0,
+      0.0,
+      0.0
+    ],
+    "thin_ring_pos": [
+      -21.875,
+      0.0,
+      0.0
+    ],
+    "carrier_pos": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "fixed_ring_pos": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "output_ring_pos": [
+      0.0,
+      0.0,
+      14.5
+    ],
+    "section_A": [
+      0.0,
+      12.5
+    ],
+    "section_B": [
+      14.5,
+      27.0
+    ],
+    "thin_ring_length": 27.0,
+    "ring_outer_r": 107.07910718989456,
+    "journal_r": 73.3245,
+    "journal_centre": [
+      -21.875,
+      0.0
+    ],
+    "planet_bore_r": 9.113,
+    "carrier_bore_r": 5.113,
+    "shaft_r": 5.0,
+    "pin_r": 9.0,
+    "shaft_in": 25.0,
+    "shaft_out": 12.5,
+    "hole_circle_r": 103.95410718989456,
+    "fixed_ring_tip_clearance": 0.3125,
+    "fixed_ring_root_clearance": 0.3125,
+    "output_ring_tip_clearance": 0.8291071898945575,
+    "output_ring_root_clearance": 0.8291071898945575,
+    "thin_ring_wall": 1.875
+  },
+  "gears": {
+    "sun": {
+      "name": "sun",
+      "kind": "external",
+      "m": 1.25,
+      "Z": 16,
+      "alpha": 0.3490658503988659,
+      "x": 0.0,
+      "phase": 0.0,
+      "thinning": 0.0,
+      "r": 10.0,
+      "rb": 9.396926207859085,
+      "ra": 11.25,
+      "rf": 8.4375,
+      "half_ref": 0.09817477042468103
+    },
+    "planet": {
+      "name": "planet",
+      "kind": "external",
+      "m": 1.25,
+      "Z": 32,
+      "alpha": 0.3490658503988659,
+      "x": 0.0,
+      "phase": 0.09817477042468115,
+      "thinning": 0.0,
+      "r": 20.0,
+      "rb": 18.79385241571817,
+      "ra": 21.25,
+      "rf": 18.4375,
+      "half_ref": 0.04908738521234052
+    },
+    "thin_ring_internal": {
+      "name": "thin_ring_internal",
+      "kind": "internal",
+      "m": 1.25,
+      "Z": 115,
+      "alpha": 0.3490658503988659,
+      "x": 0.0,
+      "phase": 0.0,
+      "thinning": 0.0,
+      "r": 71.875,
+      "rb": 67.54040711898716,
+      "ra": 70.625,
+      "rf": 73.4375,
+      "half_ref": 0.013659098493868666
+    },
+    "thin_ring_external": {
+      "name": "thin_ring_external",
+      "kind": "external",
+      "m": 1.25,
+      "Z": 123,
+      "alpha": 0.3490658503988659,
+      "x": 0.0,
+      "phase": 0.0,
+      "thinning": 0.0,
+      "r": 76.875,
+      "rb": 72.23887022291672,
+      "ra": 78.125,
+      "rf": 75.3125,
+      "half_ref": 0.012770701843860947
+    },
+    "fixed_ring": {
+      "name": "fixed_ring",
+      "kind": "internal",
+      "m": 1.25,
+      "Z": 158,
+      "alpha": 0.3490658503988659,
+      "x": 0.0,
+      "phase": -4.440892098500626e-16,
+      "thinning": 0.0,
+      "r": 98.75,
+      "rb": 92.79464630260846,
+      "ra": 97.5,
+      "rf": 100.3125,
+      "half_ref": 0.009941748903765169
+    },
+    "output_ring": {
+      "name": "output_ring",
+      "kind": "internal",
+      "m": 1.25,
+      "Z": 155,
+      "alpha": 0.3490658503988659,
+      "x": 1.9132857519156417,
+      "phase": 0.020268339700579396,
+      "thinning": 0.0,
+      "r": 96.875,
+      "rb": 91.03272263863488,
+      "ra": 98.01660718989456,
+      "rf": 100.82910718989456,
+      "half_ref": 0.001148633549090646
+    }
+  }
+}

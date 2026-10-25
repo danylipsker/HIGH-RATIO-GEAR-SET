@@ -1,0 +1,11 @@
+* text=auto
+*.bas text eol=crlf
+*.bas.template text eol=crlf
+*.dxf text eol=crlf
+*.stl binary
+*.png binary
+*.svg text
+*.py text
+*.md text
+*.json text
+*.ps1 text eol=crlf
