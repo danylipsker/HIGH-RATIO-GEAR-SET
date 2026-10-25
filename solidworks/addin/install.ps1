@@ -29,6 +29,16 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not [Environment]::Is64BitProcess) {
+    # a 32-bit PowerShell writes HKLM:\SOFTWARE\SolidWorks into WOW6432Node, which 64-bit SOLIDWORKS never reads
+    $ps64 = Join-Path $env:windir 'sysnative\WindowsPowerShell\v1.0\powershell.exe'
+    if (Test-Path $ps64) {
+        Write-Host 'Re-launching in 64-bit PowerShell...'
+        & $ps64 -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @PSBoundParameters
+        exit $LASTEXITCODE
+    }
+    throw '64-bit PowerShell not found'
+}
 $AddinDir = $PSScriptRoot
 $RepoRoot = (Resolve-Path (Join-Path $AddinDir '..\..')).Path
 $Dll = Join-Path $AddinDir "bin\$Configuration\GearSetAddin.dll"
@@ -75,6 +85,7 @@ if ($Unregister) {
     if (Test-Path $Dll) { & $RegAsm /u "$Dll" | Out-Null }
     Remove-Item "HKLM:\SOFTWARE\SolidWorks\Addins\$AddinGuid" -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item "HKCU:\Software\SolidWorks\AddInsStartup\$AddinGuid" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item "HKCU:\Software\SolidWorks\Addins\$AddinGuid" -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item 'HKCU:\Software\GearSetAddin' -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host 'Gear Set add-in unregistered. Restart SOLIDWORKS.' -ForegroundColor Green
     exit 0
@@ -125,6 +136,12 @@ New-Item -Path 'HKCU:\Software\GearSetAddin' -Force | Out-Null
 Set-ItemProperty -Path 'HKCU:\Software\GearSetAddin' -Name 'Root' -Value $RepoRoot
 New-Item -Path "HKCU:\Software\SolidWorks\AddInsStartup\$AddinGuid" -Force | Out-Null
 Set-ItemProperty -Path "HKCU:\Software\SolidWorks\AddInsStartup\$AddinGuid" -Name '(default)' -Value 1 -Type DWord
+# per-user add-in entry: SOLIDWORKS lists add-ins from HKCU\Software\SolidWorks\Addins as well as HKLM,
+# and this one needs no elevation - it stays valid even if the HKLM write of the elevated step is lost
+New-Item -Path "HKCU:\Software\SolidWorks\Addins\$AddinGuid" -Force | Out-Null
+Set-ItemProperty -Path "HKCU:\Software\SolidWorks\Addins\$AddinGuid" -Name '(default)' -Value 0 -Type DWord
+Set-ItemProperty -Path "HKCU:\Software\SolidWorks\Addins\$AddinGuid" -Name 'Title' -Value $Title
+Set-ItemProperty -Path "HKCU:\Software\SolidWorks\Addins\$AddinGuid" -Name 'Description' -Value $Description
 
 $RegLog = Join-Path $env:TEMP 'GearSet-register.log'
 if (-not (Test-Admin)) {
@@ -149,6 +166,22 @@ if (-not (Test-Admin)) {
     }
     if ($RegisterOnly) { exit 0 }
 }
+
+# ---------------------------------------------------------------- verify (64-bit view)
+$clsid = "Registry::HKEY_CLASSES_ROOT\CLSID\$AddinGuid\InprocServer32"
+$checks = [ordered]@{
+    'COM class (HKCR\CLSID\{guid}\InprocServer32)' = (Test-Path $clsid)
+    'HKLM\SOFTWARE\SolidWorks\Addins\{guid}'        = (Test-Path "HKLM:\SOFTWARE\SolidWorks\Addins\$AddinGuid")
+    'HKCU\Software\SolidWorks\Addins\{guid}'        = (Test-Path "HKCU:\Software\SolidWorks\Addins\$AddinGuid")
+    'HKCU\Software\SolidWorks\AddInsStartup\{guid}' = (Test-Path "HKCU:\Software\SolidWorks\AddInsStartup\$AddinGuid")
+}
+Write-Host ''
+Write-Host 'Registration check:'
+foreach ($k in $checks.Keys) { Write-Host ("  {0,-48} {1}" -f $k, $(if ($checks[$k]) { 'OK' } else { 'MISSING' })) -ForegroundColor $(if ($checks[$k]) { 'Green' } else { 'Red' }) }
+if (Test-Path $clsid) { Write-Host ("  CodeBase: " + (Get-ItemProperty $clsid).CodeBase) }
+if (Test-Path $RegLog) { Write-Host '  RegAsm said:'; Get-Content $RegLog | Where-Object { $_ -match '\S' } | Select-Object -Last 4 | ForEach-Object { Write-Host "    $_" } }
+if (-not (Test-Path $clsid)) { throw 'The COM class is not registered - RegAsm did not succeed. See the lines above and %TEMP%\GearSet-register.log' }
+if (-not ($checks['HKLM\SOFTWARE\SolidWorks\Addins\{guid}'] -or $checks['HKCU\Software\SolidWorks\Addins\{guid}'])) { throw 'No SolidWorks Addins key was written' }
 
 Write-Host ''
 Write-Host 'Gear Set add-in registered.' -ForegroundColor Green

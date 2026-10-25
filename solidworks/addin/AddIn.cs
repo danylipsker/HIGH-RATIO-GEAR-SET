@@ -218,8 +218,17 @@ namespace GearSet
                 k.SetValue("Description", Description);
             }
             using (var hkcu = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64))
-            using (var k = hkcu.CreateSubKey(@"Software\SolidWorks\AddInsStartup\" + key))
-                k.SetValue(null, 1, RegistryValueKind.DWord);
+            {
+                using (var k = hkcu.CreateSubKey(@"Software\SolidWorks\AddInsStartup\" + key))
+                    k.SetValue(null, 1, RegistryValueKind.DWord);
+                // per-user add-in entry as well (SOLIDWORKS reads HKCU\Software\SolidWorks\Addins too)
+                using (var k = hkcu.CreateSubKey(@"Software\SolidWorks\Addins\" + key))
+                {
+                    k.SetValue(null, 0, RegistryValueKind.DWord);
+                    k.SetValue("Title", Title);
+                    k.SetValue("Description", Description);
+                }
+            }
         }
 
         [ComUnregisterFunction]
@@ -229,7 +238,10 @@ namespace GearSet
             using (var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
                 hklm.DeleteSubKeyTree(@"SOFTWARE\SolidWorks\Addins\" + key, false);
             using (var hkcu = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64))
+            {
                 hkcu.DeleteSubKeyTree(@"Software\SolidWorks\AddInsStartup\" + key, false);
+                hkcu.DeleteSubKeyTree(@"Software\SolidWorks\Addins\" + key, false);
+            }
         }
     }
 }
