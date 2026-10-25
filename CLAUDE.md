@@ -33,7 +33,7 @@ File... -> `output\ratio-500_m1\BuildGearSet.bas` -> delete the empty default mo
 Expected: a scratch part is created and closed (direction calibration), then six parts and
 `GearSet.SLDASM` are saved in the folder, and a message box reports the ratio. 1-3 minutes.
 
-## Verification checklist (items 1-3 passed on 2026-10-25 via the add-in; 4 now automated, verify once; 5 open)
+## Verification checklist (items 1-4 passed on 2026-10-25 via the add-in: mates added, sun drives everything; direction/7.2 deg check and 5 open)
 Item 4 is built in: GearBuilder.AddMates adds Front-Plane coincident mates, concentric mates and gear
 mates sun->carrier/planet/thin ring/output with the absolute speed ratios (ks, kp, kt, ko). To verify:
 drag the sun - the carrier must turn the SAME way as the sun, the planet, thin ring and output ring the
