@@ -1,9 +1,11 @@
 # HIGH-RATIO-GEAR-SET - notes for Claude Code (desktop, SolidWorks 2020 available)
 
-This folder was produced in a cloud session **without SolidWorks**. Everything geometric is verified
-numerically (see README "What the generator verifies"), but the VBA macro that builds the native
-parts has never been executed. Your first job here is to run it, fix whatever SolidWorks 2020
-rejects, and confirm the assembly meshes. Dany is the user; SolidWorks 2020 is installed locally.
+This folder was produced in a cloud session without SolidWorks and then verified on Dany's machine with
+SolidWorks 2020 (2026-10-25): the **add-in** compiles against the real interop, registers, builds the six
+parts and `GearSet.SLDASM` for the default 1:500 set, and Interference Detection on that assembly reports
+zero interferences. Everything geometric is also verified numerically (README "What the generator
+verifies"). Still unverified: the kinematic check with gear mates (checklist item 4) and the VBA macro
+path (same geometry, older delivery). Dany is the user; SolidWorks 2020 is installed locally.
 
 ## Layout
 - `solidworks/addin/` - the **SOLIDWORKS add-in** (C#): `AddIn.cs` (ISwAddin, "Gear Set" tab), `GearSetForm.cs`
@@ -11,12 +13,11 @@ rejects, and confirm the assembly meshes. Dany is the user; SolidWorks 2020 is i
   `GearBuilder.cs` (parts + assembly through the API), `install.ps1` (build with MSBuild/dotnet, RegAsm).
   `solidworks/swcli/GearSetCli.exe` shares the same files: `solve` and `test-dialog` need no SOLIDWORKS,
   `build` drives it. Build + register: `solidworks\addin\install.ps1`. Log: `%TEMP%\GearSetAddin.log`.
-  Verified so far without SOLIDWORKS: `solidworks/stubs/compile_check.sh` compiles the add-in and the CLI
-  with Mono against stub interop signatures (0 errors), `GearSetCli solve -ratio 500` prints the same
-  tooth sets as `python gearset.py --ratio 500` (24/20/102/114/152/150 first), and the dialog runs under
-  Xvfb. NOT yet done: the real build with the SOLIDWORKS 2020 interop (`install.ps1`) and a real build of
-  the parts. First job on the Windows machine: `install.ps1`, then
-  `GearSetCli.exe build -ratio 500 -module 1 -show` and the checklist below on the result.
+  Verified: `solidworks/stubs/compile_check.sh` (Mono, stub interop, 0 errors; run it after every C# change),
+  `GearSetCli solve -ratio 500` equals `python gearset.py --ratio 500` (24/20/102/114/152/150 first), the
+  real `install.ps1` build on SolidWorks 2020, and a real build of the default set with zero interferences.
+  Registration note: SolidWorks lists the add-in from HKLM *or* HKCU `Software\SolidWorks\Addins\{guid}`;
+  install.ps1 writes both and must run in 64-bit PowerShell (it re-launches itself).
 - `gearset.py` - generator (solver, involutes, DXF/STL/SVG/report, fills the macro template). Python 3,
   stdlib; numpy + Pillow optional (rolling check, STL, PNG).
 - `solidworks/BuildGearSet.bas.template` - the macro. **Edit the template, not the generated copies**,
@@ -32,7 +33,7 @@ File... -> `output\ratio-500_m1\BuildGearSet.bas` -> delete the empty default mo
 Expected: a scratch part is created and closed (direction calibration), then six parts and
 `GearSet.SLDASM` are saved in the folder, and a message box reports the ratio. 1-3 minutes.
 
-## Verification checklist (do all, report results to Dany)
+## Verification checklist (items 1-3 passed on 2026-10-25 via the add-in; 4-5 open)
 1. Macro runs to the final message box without an error box. If it stops, the error names the step
    (`gStep`) - see "Known risk points" below.
 2. Every part rebuilds without errors; each gear has the expected tooth count (custom property `Teeth`,

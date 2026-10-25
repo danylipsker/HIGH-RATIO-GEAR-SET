@@ -114,10 +114,9 @@ Command line, same code: `swcli\bin\Release\GearSetCli.exe solve -ratio 500 -mod
 SOLIDWORKS), `GearSetCli.exe test-dialog` (dialog alone), `GearSetCli.exe build -ratio 500 -module 1 -pick 1`
 (builds through the running SOLIDWORKS, or a hidden new one with `-new`).
 
-Diagnostics: `%TEMP%\GearSetAddin.log`. The add-in was written without a SOLIDWORKS seat at hand. It
-compiles with zero errors against stub interop signatures (`solidworks\stubs\compile_check.sh`, Mono), its
-solver matches `gearset.py`, and the dialog runs; the real interop build and the first part build happen
-on the Windows machine. `CLAUDE.md` lists the places to look first if an API call misbehaves.
+Diagnostics: `%TEMP%\GearSetAddin.log`. Verified on SolidWorks 2020 (2026-10-25): compiles against the
+real interop, registers, builds the default 1:500 set, zero interferences in the resulting assembly.
+`solidworks\stubs\compile_check.sh` compiles the C# without SolidWorks (Mono) for quick checks after edits.
 
 The **Gear Set** tab, like every CommandManager tab, is only visible while a document is open: open any
 part or assembly first. The commands are also under Tools › Gear Set, and the add-in must be ticked in
