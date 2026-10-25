@@ -24,6 +24,8 @@ namespace GearSet
         private readonly TextBox _sun = new TextBox { Width = 45 };
         private readonly TextBox _planet = new TextBox { Width = 45 };
         private readonly TextBox _maxOd = new TextBox { Width = 60 };
+        private readonly TextBox _set = new TextBox { Width = 150 };
+        private readonly ComboBox _preset = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 330 };
         private readonly TextBox _faceWidth = new TextBox { Width = 60 };
         private readonly TextBox _backlash = new TextBox { Width = 60, Text = "0" };
         private readonly TextBox _awMax = new TextBox { Width = 45, Text = "31" };
@@ -64,6 +66,7 @@ namespace GearSet
 
             var rootPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(12) };
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // inputs
+            rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // tooth set / presets
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // options
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // heading
             rootPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 55));   // list
@@ -85,6 +88,13 @@ namespace GearSet
             row1.Controls.Add(Plain("(blank = free)    "));
             row1.Controls.Add(_find);
             rootPanel.Controls.Add(row1);
+
+            var rowSet = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top, Margin = new Padding(0, 4, 0, 0) };
+            rowSet.Controls.Add(Plain("or exact tooth set Zs Zp Zr1 Zr2 Zf Zo"));
+            rowSet.Controls.Add(_set);
+            rowSet.Controls.Add(Plain("      preset"));
+            rowSet.Controls.Add(_preset);
+            rootPanel.Controls.Add(rowSet);
 
             var row2 = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top, Margin = new Padding(0, 4, 0, 0) };
             row2.Controls.Add(Plain("Max ring outer diameter"));
@@ -146,8 +156,22 @@ namespace GearSet
             _tips.SetToolTip(_awMax, "Design rule: working pressure angle of the profile-shifted ring mesh (31 deg default, up to ~34 possible)");
             _tips.SetToolTip(_backlash, "Circumferential backlash per mesh; teeth are thinned by half of it. 0 = theoretical, touching flanks");
             _tips.SetToolTip(_list, "Double-click a row to build it");
+            _tips.SetToolTip(_set, "Six tooth counts build exactly this set, whatever the ratio box says (e.g. 16 32 115 123 158 155). Clear it to search by ratio.");
             _tips.SetToolTip(_mates, "Coincident / concentric mates for the positions and gear mates with the exact speed ratios to the sun; one degree of freedom left");
 
+            _preset.Items.Add("(choose a known set)");
+            foreach (var pr in Presets.All) _preset.Items.Add(pr.Name);
+            _preset.SelectedIndex = 0;
+            _preset.SelectedIndexChanged += (s, e) =>
+            {
+                if (_preset.SelectedIndex < 1) return;
+                var pr = Presets.All[_preset.SelectedIndex - 1];
+                _module.Text = pr.Module.ToString(CultureInfo.InvariantCulture);
+                _set.Text = string.Join(" ", Array.ConvertAll(pr.Teeth, t => t.ToString()));
+                _sun.Text = ""; _planet.Text = "";
+                FindSolutions();
+            };
+            _set.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) { FindSolutions(); e.SuppressKeyPress = true; } };
             _find.Click += (s, e) => FindSolutions();
             _list.SelectedIndexChanged += (s, e) => UpdateDimensions();
             _list.ItemActivate += (s, e) => { if (_build.Enabled) _build.PerformClick(); };
@@ -190,11 +214,25 @@ namespace GearSet
         // ------------------------------------------------------------------ solve
         private void FindSolutions()
         {
-            if (!Ratio.TryParse(_ratio.Text, out _target)) { Fail("Enter the gear ratio as a number (500, 528.69) or a fraction (1000/3)."); return; }
             if (Num(_module) == null || Module <= 0) { Fail("Enter the module in mm."); return; }
             var lim = new Limits();
             double? aw = Num(_awMax);
             if (aw.HasValue) lim.AwMaxDeg = Math.Min(40, Math.Max(15, aw.Value));
+            int[] z;
+            if (_set.Text.Trim().Length > 0)
+            {
+                if (!Design.TryParseTeeth(_set.Text, out z)) { Fail("The tooth set needs six whole numbers: Zs Zp Zr1 Zr2 Zf Zo."); return; }
+                var des = Design.FromTeeth(z[0], z[1], z[2], z[3], z[4], z[5], lim);
+                string why = des.Validate(lim);
+                _target = Ratio.Normalize(Math.Abs(des.RatioNum), Math.Abs(des.RatioDen));
+                _ratio.Text = Math.Abs(des.RatioValue).ToString("0.###", CultureInfo.InvariantCulture);
+                _candidates = new List<Candidate> { new Candidate { Design = des, Error = 0, Score = 0 } };
+                FillList();
+                if (why != null) Fail("Given set: " + why + " - it is listed anyway, build at your own risk.");
+                else Status("given tooth set, ratio " + des.RatioText, false);
+                return;
+            }
+            if (!Ratio.TryParse(_ratio.Text, out _target)) { Fail("Enter the gear ratio as a number (500, 528.69) or a fraction (1000/3)."); return; }
             Cursor = Cursors.WaitCursor;
             try
             {
@@ -232,7 +270,7 @@ namespace GearSet
                 it.SubItems.Add(g.ThinRingWall.ToString("0.0", CultureInfo.InvariantCulture));
                 it.SubItems.Add(g.RingOD.ToString("0.0", CultureInfo.InvariantCulture));
                 it.SubItems.Add(g.GearPackLength.ToString("0.0", CultureInfo.InvariantCulture));
-                string note = c.Error > 1e-12 ? "nearest, " + (c.Error * 100).ToString("0.0", CultureInfo.InvariantCulture) + " % off" : "exact";
+                string note = _set.Text.Trim().Length > 0 ? "given set" : c.Error > 1e-12 ? "nearest, " + (c.Error * 100).ToString("0.0", CultureInfo.InvariantCulture) + " % off" : "exact";
                 if (g.Notes.Count > 0) note += " - " + g.Notes[0];
                 it.SubItems.Add(note);
                 _list.Items.Add(it);

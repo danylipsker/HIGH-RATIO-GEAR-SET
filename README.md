@@ -98,7 +98,9 @@ Needs Visual Studio Build Tools or the .NET SDK (the same as the fastener add-in
 a **Gear Set** tab appears with *Create gear set...*:
 
 1. **Module** (mm) and **gear ratio** (1 : N, decimals or fractions accepted), optionally sun / planet
-   tooth counts, a maximum ring outer diameter, face width, backlash.
+   tooth counts, a maximum ring outer diameter, face width, backlash. Or type an **exact tooth set**
+   (`16 32 115 123 158 155`) to build precisely that set, or pick a **preset** (the seven committed sets,
+   including the 1:528.7 thin ring at modules 1, 1.25, 1.5 and 2), which fills module and set in one click.
 2. **Find solutions** lists every tooth set that gives the ratio exactly (best first: working pressure
    angle, ring tooth difference, undercut, closeness to 16/32/99/100, size). When none exists and
    "nearest" is ticked, the closest ratios are listed and marked.

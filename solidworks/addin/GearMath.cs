@@ -145,6 +145,46 @@ namespace GearSet
         {
             get { return Zs + " / " + Zp + " / " + Zr1 + " / " + Zr2 + " / " + Zf + " / " + Zo; }
         }
+
+        /// <summary>Design from six tooth counts; the ring at standard centre distance decides which one is shifted.</summary>
+        public static Design FromTeeth(int zs, int zp, int zr1, int zr2, int zf, int zo, Limits lim)
+        {
+            int D = zr1 - zs - 2 * zp;
+            return new Design
+            {
+                Zs = zs, Zp = zp, Zr1 = zr1, Zr2 = zr2, Zf = zf, Zo = zo,
+                OutputShifted = zf == zr2 + D,
+                AlphaDeg = lim.PressureAngleDeg, Addendum = lim.Addendum, Clearance = lim.Clearance,
+            };
+        }
+
+        /// <summary>Parse "16 32 115 123 158 155" (spaces, commas or slashes).</summary>
+        public static bool TryParseTeeth(string text, out int[] z)
+        {
+            z = null;
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var parts = text.Split(new[] { ' ', ',', '/', ';', '-' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 6) return false;
+            z = new int[6];
+            for (int i = 0; i < 6; i++) if (!int.TryParse(parts[i], out z[i]) || z[i] < 1) return false;
+            return true;
+        }
+    }
+
+    /// <summary>Sets that are known to work; shown as presets in the dialog.</summary>
+    public static class Presets
+    {
+        public class Preset { public string Name; public double Module; public int[] Teeth; }
+        public static readonly Preset[] All =
+        {
+            new Preset { Name = "1:500  default  24/20/102/114/152/150  m1", Module = 1.0, Teeth = new[] { 24, 20, 102, 114, 152, 150 } },
+            new Preset { Name = "1:500  sun 16  16/18/96/123/167/164  m1", Module = 1.0, Teeth = new[] { 16, 18, 96, 123, 167, 164 } },
+            new Preset { Name = "1:500  planet 32  20/32/135/153/204/200  m1", Module = 1.0, Teeth = new[] { 20, 32, 135, 153, 204, 200 } },
+            new Preset { Name = "1:528.7  thin ring 16/32/115/123/158/155  m1", Module = 1.0, Teeth = new[] { 16, 32, 115, 123, 158, 155 } },
+            new Preset { Name = "1:528.7  thin ring 16/32/115/123/158/155  m1.25", Module = 1.25, Teeth = new[] { 16, 32, 115, 123, 158, 155 } },
+            new Preset { Name = "1:528.7  thin ring 16/32/115/123/158/155  m1.5", Module = 1.5, Teeth = new[] { 16, 32, 115, 123, 158, 155 } },
+            new Preset { Name = "1:528.7  thin ring 16/32/115/123/158/155  m2", Module = 2.0, Teeth = new[] { 16, 32, 115, 123, 158, 155 } },
+        };
     }
 
     public class Candidate

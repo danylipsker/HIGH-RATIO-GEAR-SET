@@ -28,6 +28,7 @@ namespace GearSet.Cli
         private static void Usage()
         {
             Console.WriteLine("GearSetCli solve -ratio 500 [-module 1] [-sun 16] [-planet 32] [-nearest] [-aw 31] [-max-od 150]");
+            Console.WriteLine("GearSetCli solve -set 16,32,115,123,158,155 -module 1.5          exactly this tooth set (also for build)");
             Console.WriteLine("GearSetCli test-dialog                     the dialog alone, no SOLIDWORKS");
             Console.WriteLine("GearSetCli build -ratio 500 [-module 1] [-pick 1] [-out <folder>] [-sun N] [-planet N] [-backlash 0.05] [-no-mates]");
             Console.WriteLine("                 [-sw 2020] [-new] [-show]   uses the running SOLIDWORKS, or starts one (-new; hidden unless -show)");
@@ -111,13 +112,28 @@ namespace GearSet.Cli
         private static int Solve(Dictionary<string, string> o, ISldWorks sw)
         {
             Ratio target;
-            if (!Ratio.TryParse(Get(o, "ratio") ?? "500", out target)) { Console.Error.WriteLine("bad -ratio"); return 2; }
             double m = Dbl(o, "module", 1.0);
             var lim = new Limits { AwMaxDeg = Dbl(o, "aw", 31.0) };
             int? sun = IntOpt(o, "sun"), planet = IntOpt(o, "planet");
-            var list = Solver.Search(target, lim, sun, planet, true, 40);
-            bool exact = list.Count > 0;
-            if (!exact && (Get(o, "nearest") != null || sw != null)) list = Solver.Search(target, lim, sun, planet, false, 40);
+            List<Candidate> list;
+            bool exact;
+            int[] z;
+            if (Design.TryParseTeeth(Get(o, "set") ?? "", out z))
+            {
+                var des = Design.FromTeeth(z[0], z[1], z[2], z[3], z[4], z[5], lim);
+                string why = des.Validate(lim);
+                if (why != null) Console.WriteLine("warning: " + why);
+                target = Ratio.Normalize(Math.Abs(des.RatioNum), Math.Abs(des.RatioDen));
+                list = new List<Candidate> { new Candidate { Design = des } };
+                exact = true;
+            }
+            else
+            {
+                if (!Ratio.TryParse(Get(o, "ratio") ?? "500", out target)) { Console.Error.WriteLine("bad -ratio"); return 2; }
+                list = Solver.Search(target, lim, sun, planet, true, 40);
+                exact = list.Count > 0;
+                if (!exact && (Get(o, "nearest") != null || sw != null)) list = Solver.Search(target, lim, sun, planet, false, 40);
+            }
             double maxOd = Dbl(o, "max-od", 0);
             Console.WriteLine((exact ? "exact" : "nearest") + " solutions for 1:" + target.Value.ToString("0.###", CultureInfo.InvariantCulture) + " at module " + m + ":");
             Console.WriteLine("  #   Zs  Zp  Zr1  Zr2   Zf   Zo   ratio       aw     x    wall   ringOD  length");
