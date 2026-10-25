@@ -31,7 +31,7 @@ namespace GearSet.Cli
             Console.WriteLine("GearSetCli solve -set 16,32,115,123,158,155 -module 1.5          exactly this tooth set (also for build)");
             Console.WriteLine("GearSetCli solve ... -fillet 0.3 (x module, 0 = sharp)   -dump sun|planet|thinint|thinext|fixed|output  prints the outline");
             Console.WriteLine("GearSetCli test-dialog                     the dialog alone, no SOLIDWORKS");
-            Console.WriteLine("GearSetCli build -ratio 500 [-module 1] [-pick 1] [-out <folder>] [-sun N] [-planet N] [-backlash 0.05] [-no-mates]");
+            Console.WriteLine("GearSetCli build -ratio 500 [-module 1] [-pick 1] [-out <folder>] [-sun N] [-planet N] [-backlash 0.05] [-no-mates] [-no-housing]");
             Console.WriteLine("                 [-sw 2020] [-new] [-show]   uses the running SOLIDWORKS, or starts one (-new; hidden unless -show)");
         }
 
@@ -146,6 +146,7 @@ namespace GearSet.Cli
                     + "_" + c.Design.Zs + "-" + c.Design.Zp + "-" + c.Design.Zr1 + "-" + c.Design.Zr2 + "-" + c.Design.Zf + "-" + c.Design.Zo,
                     Dbl(o, "fillet", 0.3));
                 if (maxOd > 0 && g.RingOD > maxOd) continue;
+                if (Get(o, "no-housing") == null) g.AddHousing();
                 models.Add(g);
                 var d = c.Design;
                 Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0,3}  {1,3} {2,3} {3,4} {4,4} {5,4} {6,4}  {7,10:0.###}  {8,5:0.0}  {9,5:+0.00;-0.00}  {10,5:0.0}  {11,7:0.0}  {12,6:0.0}{13}",

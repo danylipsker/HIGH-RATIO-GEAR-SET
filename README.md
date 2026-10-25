@@ -111,7 +111,14 @@ a **Gear Set** tab appears with *Create gear set...*:
    `.SLDPRT` and `GearSet.SLDASM` into the chosen folder (default `output\<set name>`), nothing else.
    The teeth are true involutes with the profile shift, already phased so the assembly meshes;
    custom properties carry teeth, module, ratio and the main dimensions. The assembly stays open.
-5. With **add mates** ticked (default) the assembly is fully mated with one degree of freedom: Front
+5. With **add housing with bearings** ticked (default) five more parts come out: `FrontCover` (holds the
+   sun's input bearing), `Shell` (clamps the fixed ring against an internal lip, bolt holes through the
+   wall), `RearCover` (seat for the output hub bearing), and the two bearing parts; the output ring is
+   built as an **output cup**: teeth, closing web, hub running in the rear bearing with the sun's rear
+   bearing inside it, and an output shaft. Bearings are standard 60xx deep-groove sizes picked by shaft
+   diameter (module 1: 6001 for the sun, 6008 for the hub); housing parts and bearings are fixed
+   components. The dimensions panel lists shell OD, bolt circle, bearings and overall length.
+6. With **add mates** ticked (default) the assembly is fully mated with one degree of freedom: Front
    Planes coincident for the axial positions, concentric mates on the sun shaft, carrier pin, carrier
    journal and ring cylinders, and four gear mates that tie carrier, planet, thin ring and output ring
    to the sun with their exact speed ratios (for 1:500: 0.15, 0.87, 0.05 and 0.002 turns per sun turn).

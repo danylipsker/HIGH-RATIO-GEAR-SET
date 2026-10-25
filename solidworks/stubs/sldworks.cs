@@ -66,8 +66,9 @@ namespace SolidWorks.Interop.sldworks
         object AddMate5(int mateTypeFromEnum, int alignFromEnum, bool flip, double distance, double distanceAbsUpperLimit, double distanceAbsLowerLimit,
             double gearRatioNumerator, double gearRatioDenominator, double angle, double angleAbsUpperLimit, double angleAbsLowerLimit,
             bool forPositioningOnly, bool lockRotation, int widthMateOption, out int errorStatus);
+        bool FixComponent();
     }
-    public interface IComponent2 { string Name2 { get; } object GetBodies3(int bodyType, out object bodyInfo); object FirstFeature(); }
+    public interface IComponent2 { string Name2 { get; } object GetBodies3(int bodyType, out object bodyInfo); object FirstFeature(); bool Select4(bool append, SelectData data, bool invertSelection); }
     public interface IEntity { bool Select4(bool append, SelectData data); }
     public interface Entity : IEntity { }
     public interface ISelectData { int Mark { get; set; } }

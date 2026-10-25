@@ -31,6 +31,7 @@ namespace GearSet
         private readonly TextBox _awMax = new TextBox { Width = 45, Text = "31" };
         private readonly TextBox _fillet = new TextBox { Width = 45, Text = "0.3" };
         private readonly CheckBox _mates = new CheckBox { Text = "add mates so the assembly animates (drag the sun)", AutoSize = true, Checked = true };
+        private readonly CheckBox _housing = new CheckBox { Text = "add housing with bearings (covers, shell, output cup)", AutoSize = true, Checked = true };
         private readonly CheckBox _nearest = new CheckBox { Text = "if no exact set exists, show the nearest ratios", AutoSize = true, Checked = true };
         private readonly Button _find = new Button { Text = "Find solutions", Width = 120, Height = 28 };
         private readonly ListView _list = new ListView
@@ -76,6 +77,7 @@ namespace GearSet
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // heading
             rootPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 45));   // dimensions
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // folder
+            rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // mates / housing
             rootPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // buttons
 
             var row1 = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top };
@@ -142,9 +144,12 @@ namespace GearSet
             folderRow.Controls.Add(Bold("5. Folder for the .SLDPRT / .SLDASM files"));
             folderRow.Controls.Add(_folder);
             folderRow.Controls.Add(_browse);
-            _mates.Margin = new Padding(16, 7, 0, 0);
-            folderRow.Controls.Add(_mates);
             rootPanel.Controls.Add(folderRow);
+            var optRow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
+            _mates.Margin = new Padding(0, 4, 24, 0); _housing.Margin = new Padding(0, 4, 0, 0);
+            optRow.Controls.Add(_mates);
+            optRow.Controls.Add(_housing);
+            rootPanel.Controls.Add(optRow);
 
             var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top, Margin = new Padding(0, 8, 0, 0) };
             buttons.Controls.Add(_build);
@@ -164,6 +169,8 @@ namespace GearSet
             _tips.SetToolTip(_list, "Double-click a row to build it");
             _tips.SetToolTip(_set, "Six tooth counts build exactly this set, whatever the ratio box says (e.g. 16 32 115 123 158 155). Clear it to search by ratio.");
             _tips.SetToolTip(_mates, "Coincident / concentric mates for the positions and gear mates with the exact speed ratios to the sun; one degree of freedom left");
+            _tips.SetToolTip(_housing, "Front cover with the sun's bearing, shell clamping the fixed ring, output ring extended into a cup with a hub on a large bearing in the rear cover, and the sun's rear bearing inside the hub. Standard 60xx deep-groove bearings.");
+            _housing.CheckedChanged += (s, e) => UpdateDimensions();
 
             _preset.Items.Add("(choose a known set)");
             foreach (var pr in Presets.All) _preset.Items.Add(pr.Name);
@@ -288,7 +295,9 @@ namespace GearSet
 
         private GearModel QuickModel(Design d, double m)
         {
-            return GearModel.Create(d, m, Num(_faceWidth) ?? 0, 0, Num(_backlash) ?? 0, 0, 0, 5.0, 6, SetName(d, m), Num(_fillet) ?? 0.3);
+            var g = GearModel.Create(d, m, Num(_faceWidth) ?? 0, 0, Num(_backlash) ?? 0, 0, 0, 5.0, 6, SetName(d, m), Num(_fillet) ?? 0.3);
+            if (_housing.Checked) g.AddHousing();
+            return g;
         }
 
         private string SetName(Design d, double m)

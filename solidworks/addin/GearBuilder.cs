@@ -56,8 +56,8 @@ namespace GearSet
             var paths = new Dictionary<string, string>();
             Say("fixed ring (" + g.Design.Zf + " teeth)");
             paths["FixedRing"] = BuildRing(g, g.Fixed, g.ZA0, g.ZA1, outDir, "FixedRing");
-            Say("output ring (" + g.Design.Zo + " teeth)");
-            paths["OutputRing"] = BuildRing(g, g.Output, g.ZB0, g.ZB1, outDir, "OutputRing");
+            Say("output ring (" + g.Design.Zo + " teeth)" + (g.Housing != null ? " as output cup" : ""));
+            paths["OutputRing"] = g.Housing != null ? BuildOutputCup(g, outDir) : BuildRing(g, g.Output, g.ZB0, g.ZB1, outDir, "OutputRing");
             Say("sun (" + g.Design.Zs + " teeth)");
             paths["Sun"] = BuildSun(g, outDir);
             Say("planet (" + g.Design.Zp + " teeth)");
@@ -66,6 +66,15 @@ namespace GearSet
             paths["ThinRing"] = BuildThinRing(g, outDir);
             Say("carrier");
             paths["Carrier"] = BuildCarrier(g, outDir);
+            if (g.Housing != null)
+            {
+                HousingSpec h = g.Housing;
+                Say("front cover"); paths["FrontCover"] = BuildFrontCover(g, outDir);
+                Say("shell"); paths["Shell"] = BuildShell(g, outDir);
+                Say("rear cover"); paths["RearCover"] = BuildRearCover(g, outDir);
+                Say("bearing " + h.SunBearing.Name); paths["BearingSun"] = BuildBearing(g, h.SunBearing, outDir);
+                Say("bearing " + h.HubBearing.Name); paths["BearingHub"] = BuildBearing(g, h.HubBearing, outDir);
+            }
             foreach (var p in paths.Values) res.Files.Add(p);
 
             Say("assembly" + (addMates ? " + mates" : ""));
@@ -154,6 +163,86 @@ namespace GearSet
             return Finish(doc, g, name, ring.Z, ring.X, outDir);
         }
 
+        // ------------------------------------------------------------------------------ housing
+        /// <summary>Annular (or solid, rInner = 0) extrusion about the part origin between z0 and z1 (mm), optional bolt holes.</summary>
+        private void Annulus(IModelDoc2 doc, double rOuter, double rInner, double z0, double z1, HousingSpec bolts)
+        {
+            StartSketch(doc);
+            doc.SketchManager.CreateCircleByRadius(0, 0, 0, rOuter / 1000);
+            if (rInner > 1e-9) doc.SketchManager.CreateCircleByRadius(0, 0, 0, rInner / 1000);
+            if (bolts != null)
+                for (int k = 0; k < bolts.Bolts; k++)
+                {
+                    double t = 2 * Math.PI * (k + 0.5) / bolts.Bolts;
+                    doc.SketchManager.CreateCircleByRadius(bolts.BoltCircleR * Math.Cos(t) / 1000, bolts.BoltCircleR * Math.Sin(t) / 1000, 0, bolts.BoltD / 2000);
+                }
+            Extrude(doc, z1 - z0, z0, false);
+        }
+
+        private string BuildFrontCover(GearModel g, string outDir)
+        {
+            HousingSpec h = g.Housing;
+            IModelDoc2 doc = NewPart();
+            // built from the front face backwards: bearing seat, lip for the shaft, recess over the gear faces
+            double zRecess = h.FrontZ1 - h.FrontRecessDepth;
+            // all three slices start at negative z: extrude backwards from z = 0 in one piece each (reverse = towards -Z)
+            Annulus(doc, h.ShellOuterR, h.FrontSeatR, h.FrontSeatZ0, h.FrontSeatZ1, h);
+            Annulus(doc, h.ShellOuterR, h.FrontLipR, h.FrontSeatZ1, zRecess, h);
+            Annulus(doc, h.ShellOuterR, h.FrontRecessR, zRecess, h.FrontZ1, h);
+            return Finish(doc, g, "FrontCover", 0, 0.0, outDir);
+        }
+
+        private string BuildShell(GearModel g, string outDir)
+        {
+            HousingSpec h = g.Housing;
+            IModelDoc2 doc = NewPart();
+            Annulus(doc, h.ShellOuterR, h.ShellInnerR, h.ShellZ0, h.ShellZ1, h);
+            Annulus(doc, h.ShellInnerR + 0.5, h.LipInnerR, h.LipZ0, h.LipZ1, null);     // lip the fixed ring is clamped against
+            return Finish(doc, g, "Shell", 0, 0.0, outDir);
+        }
+
+        private string BuildRearCover(GearModel g, string outDir)
+        {
+            HousingSpec h = g.Housing;
+            IModelDoc2 doc = NewPart();
+            Annulus(doc, h.ShellOuterR, h.RearSeatR, h.RearSeatZ0, h.RearSeatZ1, h);
+            Annulus(doc, h.ShellOuterR, h.RearLipR, h.RearSeatZ1, h.RearZ1, h);
+            return Finish(doc, g, "RearCover", 0, 0.0, outDir);
+        }
+
+        /// <summary>The output ring extended into a cup: teeth, closing web, hub on the rear bearing (with the sun's rear bearing inside), output shaft.</summary>
+        private string BuildOutputCup(GearModel g, string outDir)
+        {
+            HousingSpec h = g.Housing;
+            IModelDoc2 doc = NewPart();
+            StartSketch(doc);
+            doc.SketchManager.CreateCircleByRadius(0, 0, 0, g.RingOuterR / 1000);
+            AddOutline(doc, g.Output, 0, 0);
+            Extrude(doc, h.WebZ0 - g.ZB0, g.ZB0, false);
+            Annulus(doc, g.RingOuterR, h.WebInnerR, h.WebZ0, h.WebZ1, null);
+            Annulus(doc, h.HubR, h.HubBoreR, h.HubZ0, h.HubBoreZ1, null);
+            Annulus(doc, h.HubR, 0, h.HubBoreZ1, h.HubZ1, null);
+            Annulus(doc, h.OutShaftR, 0, h.OutShaftZ0, h.OutShaftZ1, null);
+            return Finish(doc, g, "OutputRing", g.Output.Z, g.Output.X, outDir);
+        }
+
+        /// <summary>A deep-groove ball bearing as one solid ring, built from z = 0 (placed by the assembly).</summary>
+        private string BuildBearing(GearModel g, Bearing b, string outDir)
+        {
+            IModelDoc2 doc = NewPart();
+            double chamfer = Math.Min(0.6, 0.06 * b.Width);
+            Annulus(doc, b.OD / 2 - chamfer, b.Bore / 2 + chamfer, 0, chamfer, null);
+            Annulus(doc, b.OD / 2, b.Bore / 2, chamfer, b.Width - chamfer, null);
+            Annulus(doc, b.OD / 2 - chamfer, b.Bore / 2 + chamfer, b.Width - chamfer, b.Width, null);
+            try
+            {
+                CustomPropertyManager cpm = doc.Extension.get_CustomPropertyManager("");
+                Prop(cpm, "Bearing", b.Name + " deep groove ball bearing " + F(b.Bore) + " x " + F(b.OD) + " x " + F(b.Width));
+            }
+            catch (Exception ex) { Log.Add("bearing properties: " + ex.Message); }
+            return Finish(doc, g, "Bearing" + b.Name, 0, 0.0, outDir);
+        }
+
         // ------------------------------------------------------------------------------ assembly
         private string BuildAssembly(GearModel g, Dictionary<string, string> paths, string outDir, bool addMates, BuildResult res)
         {
@@ -169,6 +258,29 @@ namespace GearSet
             comps["Planet"] = Insert(asm, paths["Planet"], opt, g.A1 / 1000, 0, 0);
             comps["ThinRing"] = Insert(asm, paths["ThinRing"], opt, -g.E / 1000, 0, 0);
             comps["Carrier"] = Insert(asm, paths["Carrier"], opt, 0, 0, 0);
+            if (g.Housing != null)
+            {
+                HousingSpec h = g.Housing;
+                var fixedComps = new List<Component2>
+                {
+                    Insert(asm, paths["FrontCover"], opt, 0, 0, 0),
+                    Insert(asm, paths["Shell"], opt, 0, 0, 0),
+                    Insert(asm, paths["RearCover"], opt, 0, 0, 0),
+                    Insert(asm, paths["BearingSun"], opt, 0, 0, h.SunBearingFrontZ0 / 1000),
+                    Insert(asm, paths["BearingSun"], opt, 0, 0, h.SunBearingRearZ0 / 1000),
+                    Insert(asm, paths["BearingHub"], opt, 0, 0, h.HubBearingZ0 / 1000),
+                };
+                foreach (Component2 fc in fixedComps)
+                {
+                    try
+                    {
+                        asmDoc.ClearSelection2(true);
+                        if (fc.Select4(false, null, false)) asm.FixComponent();
+                    }
+                    catch (Exception ex) { Log.Add("fix component: " + ex.Message); }
+                }
+                asmDoc.ClearSelection2(true);
+            }
             if (addMates)
             {
                 try { AddMates(asmDoc, g, comps, res); }

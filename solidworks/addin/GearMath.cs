@@ -607,6 +607,110 @@ namespace GearSet
     }
 
     // ------------------------------------------------------------------------------------------------
+    // housing with bearings (all mm, absolute Z of the assembly: sun axis = Z, Front Plane = z 0)
+    // ------------------------------------------------------------------------------------------------
+    public class Bearing
+    {
+        public string Name; public double Bore, OD, Width;
+        public override string ToString() { return Name + " (" + Bore + " x " + OD + " x " + Width + ")"; }
+    }
+
+    public class HousingSpec
+    {
+        // deep-groove ball bearings 60xx, by bore (ISO 15): bore, OD, width
+        public static readonly Bearing[] Series60 =
+        {
+            new Bearing { Name = "6000", Bore = 10, OD = 26, Width = 8 }, new Bearing { Name = "6001", Bore = 12, OD = 28, Width = 8 },
+            new Bearing { Name = "6002", Bore = 15, OD = 32, Width = 9 }, new Bearing { Name = "6003", Bore = 17, OD = 35, Width = 10 },
+            new Bearing { Name = "6004", Bore = 20, OD = 42, Width = 12 }, new Bearing { Name = "6005", Bore = 25, OD = 47, Width = 12 },
+            new Bearing { Name = "6006", Bore = 30, OD = 55, Width = 13 }, new Bearing { Name = "6007", Bore = 35, OD = 62, Width = 14 },
+            new Bearing { Name = "6008", Bore = 40, OD = 68, Width = 15 }, new Bearing { Name = "6009", Bore = 45, OD = 75, Width = 16 },
+            new Bearing { Name = "6010", Bore = 50, OD = 80, Width = 16 }, new Bearing { Name = "6011", Bore = 55, OD = 90, Width = 18 },
+            new Bearing { Name = "6012", Bore = 60, OD = 95, Width = 18 }, new Bearing { Name = "6013", Bore = 65, OD = 100, Width = 18 },
+            new Bearing { Name = "6014", Bore = 70, OD = 110, Width = 20 }, new Bearing { Name = "6015", Bore = 75, OD = 115, Width = 20 },
+            new Bearing { Name = "6016", Bore = 80, OD = 125, Width = 22 }, new Bearing { Name = "6018", Bore = 90, OD = 140, Width = 24 },
+            new Bearing { Name = "6020", Bore = 100, OD = 150, Width = 24 },
+        };
+
+        public static Bearing ForBore(double minBore)
+        {
+            foreach (var b in Series60) if (b.Bore >= minBore - 1e-9) return b;
+            return Series60[Series60.Length - 1];
+        }
+
+        public Bearing SunBearing, HubBearing;
+        public double Clearance;                         // radial running clearance of the output cup in the shell
+        public double ShellInnerR, ShellOuterR, ShellZ0, ShellZ1, LipInnerR, LipZ0, LipZ1;
+        public double FrontZ0, FrontZ1, FrontRecessR, FrontRecessDepth, FrontSeatR, FrontSeatZ0, FrontSeatZ1, FrontLipR;
+        public double WebZ0, WebZ1, WebInnerR, HubR, HubZ0, HubZ1, HubBoreR, HubBoreZ0, HubBoreZ1, OutShaftR, OutShaftZ0, OutShaftZ1;
+        public double RearZ0, RearZ1, RearSeatR, RearSeatZ0, RearSeatZ1, RearLipR;
+        public double BoltCircleR, BoltD; public int Bolts;
+        public double SunShaftEndZ;                      // where the sun shaft must end (inside the hub bearing)
+        public double SunBearingFrontZ0, SunBearingRearZ0, HubBearingZ0;
+        public double OverallLength, OverallOD;
+
+        /// <summary>Lay the housing out around a gear model.</summary>
+        public static HousingSpec Create(GearModel g)
+        {
+            var h = new HousingSpec();
+            double m = g.M;
+            h.Clearance = Math.Max(0.2, 0.2 * m);
+            h.SunBearing = ForBore(g.ShaftD);
+            double hubMin = Math.Max(3 * g.ShaftD, h.SunBearing.OD + 8 * m);     // hub must carry the sun's rear bearing inside
+            h.HubBearing = ForBore(hubMin);
+            double R = g.RingOuterR;
+            double wall = Math.Max(8.0, 8 * m);
+            h.ShellInnerR = R + h.Clearance;
+            h.ShellOuterR = h.ShellInnerR + wall;
+            h.ShellZ0 = g.ZA0;
+            // lip between fixed ring and output ring: in the axial gap, clear of the thin ring's teeth
+            double thinTipMaxR = g.E + g.ThinExt.Ra;
+            h.LipInnerR = Math.Max(R - wall * 0.6, thinTipMaxR + 1.0 * m);
+            h.LipZ0 = g.ZA1; h.LipZ1 = g.ZB0 - h.Clearance;
+            // output cup: web closes the output ring behind section B, hub runs in the rear bearing
+            h.WebZ0 = g.ZB1 + h.Clearance; h.WebZ1 = h.WebZ0 + Math.Max(5.0, 5 * m);
+            h.WebInnerR = g.ShaftD / 2 + Math.Max(1.0, 1 * m);
+            h.HubR = h.HubBearing.Bore / 2;
+            h.HubZ0 = h.WebZ1; h.HubZ1 = h.WebZ1 + h.HubBearing.Width;
+            h.HubBoreR = h.SunBearing.OD / 2;
+            h.HubBoreZ0 = h.HubZ0; h.HubBoreZ1 = h.HubZ0 + h.SunBearing.Width;
+            h.OutShaftR = Math.Max(h.HubR - 5, h.HubR * 0.75);
+            h.OutShaftZ0 = h.HubZ1; h.OutShaftZ1 = h.HubZ1 + Math.Max(20.0, 2 * g.FaceWidth);
+            h.ShellZ1 = h.WebZ1;
+            // rear cover: seat for the hub bearing, lip behind it, through hole for the output shaft
+            h.RearZ0 = h.WebZ1; h.RearSeatR = h.HubBearing.OD / 2;
+            h.RearSeatZ0 = h.RearZ0; h.RearSeatZ1 = h.RearZ0 + h.HubBearing.Width;
+            h.RearLipR = h.OutShaftR + Math.Max(1.0, 1 * m);
+            h.RearZ1 = h.RearSeatZ1 + Math.Max(3.0, 3 * m);
+            // front cover: seat for the sun bearing from the front, lip towards the gears, shallow recess over the gear faces
+            double frontT = h.SunBearing.Width + Math.Max(3.0, 3 * m);
+            h.FrontZ1 = g.ZA0; h.FrontZ0 = g.ZA0 - frontT;
+            h.FrontSeatR = h.SunBearing.OD / 2; h.FrontSeatZ0 = h.FrontZ0; h.FrontSeatZ1 = h.FrontZ0 + h.SunBearing.Width;
+            h.FrontLipR = g.ShaftD / 2 + Math.Max(1.0, 1 * m);
+            h.FrontRecessR = g.Fixed.Rf + 0.5 * m; h.FrontRecessDepth = Math.Max(0.5, 0.5 * m);
+            h.Bolts = Math.Max(6, g.Holes); h.BoltD = Math.Max(4.0, 4 * m);
+            h.BoltCircleR = h.ShellInnerR + wall / 2;
+            h.SunBearingFrontZ0 = h.FrontSeatZ0; h.SunBearingRearZ0 = h.HubBoreZ0; h.HubBearingZ0 = h.RearSeatZ0;
+            h.SunShaftEndZ = h.HubBoreZ1 - Math.Max(0.5, 0.5 * m);
+            h.OverallLength = h.OutShaftZ1 - h.FrontZ0 + g.ShaftIn;
+            h.OverallOD = 2 * h.ShellOuterR;
+            return h;
+        }
+
+        public string Text()
+        {
+            var sb = new System.Text.StringBuilder();
+            string f = "0.##";
+            sb.AppendLine("Housing             shell OD " + OverallOD.ToString(f, CultureInfo.InvariantCulture) + " mm, " + Bolts + " x M" + BoltD.ToString("0", CultureInfo.InvariantCulture)
+                          + " on " + (2 * BoltCircleR).ToString(f, CultureInfo.InvariantCulture) + " mm, overall length " + OverallLength.ToString(f, CultureInfo.InvariantCulture) + " mm with the input and output shafts");
+            sb.AppendLine("Bearings            sun " + SunBearing + " front and inside the output hub, output hub " + HubBearing + " in the rear cover");
+            sb.AppendLine("Output              cup on the output ring, hub d " + (2 * HubR).ToString(f, CultureInfo.InvariantCulture) + ", output shaft d " + (2 * OutShaftR).ToString(f, CultureInfo.InvariantCulture)
+                          + " x " + (OutShaftZ1 - OutShaftZ0).ToString(f, CultureInfo.InvariantCulture) + " mm");
+            return sb.ToString();
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------
     // complete model: all outlines, positions, overall dimensions, checks
     // ------------------------------------------------------------------------------------------------
     public class GearModel
@@ -615,6 +719,7 @@ namespace GearSet
         public double M, FaceWidth, Gap, Rim, Backlash, ShaftD, PinD, FitClearance, HoleD, FilletMod;
         public int Holes;
         public string Name;
+        public HousingSpec Housing;                  // null = gears only
 
         public GearGeom Sun, Planet, ThinInt, ThinExt, Fixed, Output;
         public double A1, E, RingOuterR, JournalR, PlanetBoreR, CarrierBoreR, HoleCircleR, ShaftIn, ShaftOut;
@@ -638,6 +743,13 @@ namespace GearSet
             g.HoleD = Math.Round(0.4 * g.Rim, 2);
             g.Build();
             return g;
+        }
+
+        /// <summary>Add the housing (front cover, shell, output cup, rear cover, bearings); the sun shaft then ends inside the hub bearing.</summary>
+        public void AddHousing()
+        {
+            Housing = HousingSpec.Create(this);
+            ShaftOut = Housing.SunShaftEndZ - ZB1;
         }
 
         private static double Mod(double a, double p) { return a - Math.Floor(a / p) * p; }
@@ -761,6 +873,7 @@ namespace GearSet
                           + ", thin/output " + cr["thin ring/output ring"].ToString("0.00", CultureInfo.InvariantCulture) + ")");
             if (Backlash > 0) sb.AppendLine("Backlash            " + Backlash.ToString("0.###", CultureInfo.InvariantCulture) + " mm per mesh");
             sb.AppendLine("Root fillets        " + (Sun.Fil == null ? "none" : "r = " + (FilletMod * M).ToString("0.###", CultureInfo.InvariantCulture) + " mm (" + FilletMod.ToString("0.##", CultureInfo.InvariantCulture) + " x module), reduced where a space is too narrow"));
+            if (Housing != null) sb.Append(Housing.Text());
             foreach (string n in Notes) sb.AppendLine("WARNING  " + n);
             return sb.ToString();
         }
