@@ -59,7 +59,7 @@ Expected: a scratch part is created and closed (direction calibration), then six
 ## Conventions
 - API lengths in metres, parameters in mm/degrees; all parts share the sun axis as Z, Front Plane as
   z = 0; the planet sits at +x, the thin-ring centre at -x (eccentricity e); meshes lie on the x axis.
-- Commit messages follow the repository style (`feat(gear-set): ...`, `fix(gear-set): ...`); add a
-  dated note in `../sessions/` for a session that changes behaviour.
+- Commit messages: `feat: ...`, `fix: ...`, `docs: ...`; add a dated `SESSION-YYYY-MM-DD.md` at the
+  repository root for a session that changes behaviour (see `SESSION-2026-10-25.md`).
 - When a set is requested ("ratio R, module m, max OD D, sun/planet counts"), run `gearset.py` with
   those options, read the report (warnings, contact ratios, rolling check), then run the macro.
