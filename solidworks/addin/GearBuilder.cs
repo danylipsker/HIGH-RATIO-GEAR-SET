@@ -361,6 +361,106 @@ namespace GearSet
                 ks, kp, kt, ko));
         }
 
+        /// <summary>
+        /// Mates for an assembly SolidWorks made by importing the engine's STEP of the set (GEARS GENERATOR's
+        /// family path: one component per solid, every component fixed, generic names). The six gears are told
+        /// apart by their bounding boxes against the model's layout (the housing parts and bearings, when there,
+        /// stay fixed), the five moving ones are unfixed, then the same mates as Build adds: Front Planes
+        /// coincident with the fixed ring's (every imported part keeps the global frame, so its Front Plane is
+        /// z = 0), one concentric mate per moving part, gear mates to the sun with the absolute speed ratios.
+        /// </summary>
+        public BuildResult MateImportedAssembly(IModelDoc2 asmDoc, GearModel g)
+        {
+            var res = new BuildResult();
+            IAssemblyDoc asm = (IAssemblyDoc)asmDoc;
+            object[] all = asm.GetComponents(true) as object[];
+            if (all == null || all.Length == 0) { res.MateReport.Add("no components in the assembly"); return res; }
+
+            // the expected boxes (mm, assembly frame): x0 y0 z0 x1 y1 z1
+            double R = g.RingOuterR;
+            double jr = g.JournalR, pr = g.PinD / 2;
+            double outZ1 = g.Housing != null ? g.Housing.OutShaftZ1 : g.ZB1;
+            var expected = new Dictionary<string, double[]>
+            {
+                { "Sun", new[] { -g.Sun.Ra, -g.Sun.Ra, -g.ShaftIn, g.Sun.Ra, g.Sun.Ra, g.ZB1 + g.ShaftOut } },
+                { "Planet", new[] { g.A1 - g.Planet.Ra, -g.Planet.Ra, g.ZA0, g.A1 + g.Planet.Ra, g.Planet.Ra, g.ZA1 } },
+                { "ThinRing", new[] { -g.E - g.ThinExt.Ra, -g.ThinExt.Ra, g.ZA0, -g.E + g.ThinExt.Ra, g.ThinExt.Ra, g.ZB1 } },
+                { "Carrier", new[] { Math.Min(-g.E - jr, g.A1 - pr), -Math.Max(jr, pr), g.ZA0, Math.Max(-g.E + jr, g.A1 + pr), Math.Max(jr, pr), g.ZB1 } },
+                { "FixedRing", new[] { -R, -R, g.ZA0, R, R, g.ZA1 } },
+                { "OutputRing", new[] { -R, -R, g.ZB0, R, R, outZ1 } },
+            };
+
+            // every component with a solid body and its box
+            var candidates = new List<KeyValuePair<Component2, double[]>>();
+            foreach (object o in all)
+            {
+                Component2 c = (Component2)o;
+                object bodyInfo;
+                object[] bodies = null;
+                try { bodies = c.GetBodies3((int)swBodyType_e.swSolidBody, out bodyInfo) as object[]; } catch { }
+                if (bodies == null || bodies.Length == 0) continue;           // the pitch circle bands, suppressed parts
+                double[] b = null;
+                try { b = c.GetBox(false, false) as double[]; } catch { }
+                if (b == null || b.Length < 6) continue;
+                var mm = new[] { Math.Min(b[0], b[3]) * 1000, Math.Min(b[1], b[4]) * 1000, Math.Min(b[2], b[5]) * 1000,
+                                 Math.Max(b[0], b[3]) * 1000, Math.Max(b[1], b[4]) * 1000, Math.Max(b[2], b[5]) * 1000 };
+                candidates.Add(new KeyValuePair<Component2, double[]>(c, mm));
+                Log.Add(string.Format(CultureInfo.InvariantCulture, "component {0}: box x {1:0.#}..{2:0.#} y {3:0.#}..{4:0.#} z {5:0.#}..{6:0.#}",
+                    c.Name2, mm[0], mm[3], mm[1], mm[4], mm[2], mm[5]));
+            }
+
+            // best pairing, globally: the smallest box error first, each component and each name once
+            var found = new Dictionary<string, Component2>();
+            var usedComps = new HashSet<string>();
+            while (found.Count < expected.Count)
+            {
+                string bestName = null; Component2 bestComp = null; double bestErr = double.MaxValue; double[] bestExp = null;
+                foreach (var kv in expected)
+                {
+                    if (found.ContainsKey(kv.Key)) continue;
+                    foreach (var cand in candidates)
+                    {
+                        if (usedComps.Contains(cand.Key.Name2)) continue;
+                        double err = 0;
+                        for (int i = 0; i < 6; i++) err += Math.Abs(cand.Value[i] - kv.Value[i]);
+                        if (err < bestErr) { bestErr = err; bestName = kv.Key; bestComp = cand.Key; bestExp = kv.Value; }
+                    }
+                }
+                if (bestName == null) break;
+                double size = Math.Max(bestExp[3] - bestExp[0], Math.Max(bestExp[4] - bestExp[1], bestExp[5] - bestExp[2]));
+                if (bestErr > 2.0 + 0.1 * size)
+                {
+                    res.MateReport.Add(bestName + ": no component matches its box (closest " + bestComp.Name2 + ", off by " + bestErr.ToString("0.#", CultureInfo.InvariantCulture) + " mm)");
+                    expected.Remove(bestName);
+                    continue;
+                }
+                found[bestName] = bestComp; usedComps.Add(bestComp.Name2);
+                res.MateReport.Add(bestName + " = " + bestComp.Name2 + " (box off by " + bestErr.ToString("0.##", CultureInfo.InvariantCulture) + " mm)");
+            }
+            foreach (string name in new[] { "Sun", "Planet", "ThinRing", "Carrier", "FixedRing", "OutputRing" })
+                if (!found.ContainsKey(name)) { res.MateReport.Add("mates skipped: " + name + " not identified"); return res; }
+
+            // the fixed ring stays put; the five moving parts are freed; the housing and bearings stay as imported (fixed)
+            try
+            {
+                asmDoc.ClearSelection2(true);
+                if (!found["FixedRing"].IsFixed() && found["FixedRing"].Select4(false, null, false)) asm.FixComponent();
+                asmDoc.ClearSelection2(true);
+                foreach (string name in new[] { "Sun", "Planet", "ThinRing", "Carrier", "OutputRing" })
+                {
+                    Component2 c = found[name];
+                    if (c.IsFixed() && c.Select4(false, null, false)) asm.UnfixComponent();
+                    asmDoc.ClearSelection2(true);
+                }
+            }
+            catch (Exception ex) { res.MateReport.Add("unfix: " + ex.Message); }
+
+            AddMates(asmDoc, g, found, res);
+            asmDoc.ClearSelection2(true);
+            try { asmDoc.ForceRebuild3(false); } catch { }
+            return res;
+        }
+
         /// <summary>Gear mate sun -> part with |ratio| = spin of the part per spin of the sun; sign = direction.</summary>
         private void GearMate(IModelDoc2 asmDoc, string what, IFace2 sun, IFace2 part, double ratio, BuildResult res)
         {

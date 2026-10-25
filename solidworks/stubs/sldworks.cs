@@ -67,8 +67,10 @@ namespace SolidWorks.Interop.sldworks
             double gearRatioNumerator, double gearRatioDenominator, double angle, double angleAbsUpperLimit, double angleAbsLowerLimit,
             bool forPositioningOnly, bool lockRotation, int widthMateOption, out int errorStatus);
         bool FixComponent();
+        bool UnfixComponent();
+        object GetComponents(bool topLevelOnly);
     }
-    public interface IComponent2 { string Name2 { get; } object GetBodies3(int bodyType, out object bodyInfo); object FirstFeature(); bool Select4(bool append, SelectData data, bool invertSelection); }
+    public interface IComponent2 { string Name2 { get; } object GetBodies3(int bodyType, out object bodyInfo); object FirstFeature(); bool Select4(bool append, SelectData data, bool invertSelection); object GetBox(bool includeRefPlanes, bool includeSketches); bool IsFixed(); }
     public interface IEntity { bool Select4(bool append, SelectData data); }
     public interface Entity : IEntity { }
     public interface ISelectData { int Mark { get; set; } }
