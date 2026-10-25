@@ -18,7 +18,7 @@ namespace GearSet
         public string OutputFolder { get; private set; }
         public bool AddMates { get { return _mates.Checked; } }
 
-        private readonly string _root;
+        private readonly string _root, _outputBase;
         private readonly TextBox _module = new TextBox { Width = 60, Text = "1" };
         private readonly TextBox _ratio = new TextBox { Width = 90, Text = "500" };
         private readonly TextBox _sun = new TextBox { Width = 45 };
@@ -53,9 +53,11 @@ namespace GearSet
         private List<Candidate> _candidates = new List<Candidate>();
         private Ratio _target;
 
-        public GearSetForm(string root)
+        /// <param name="root">folder of gearset.py (default output goes to root\output), may be null</param>
+        /// <param name="outputBase">when given, new sets go to outputBase\&lt;set name&gt; (e.g. a parts library)</param>
+        public GearSetForm(string root, string outputBase = null)
         {
-            _root = root;
+            _root = root; _outputBase = outputBase;
             Text = "Gear Set - high ratio single-planet reducer";
             Font = new Font("Segoe UI", 9f);
             StartPosition = FormStartPosition.CenterScreen;
@@ -313,6 +315,7 @@ namespace GearSet
 
         private string DefaultFolder()
         {
+            if (!string.IsNullOrEmpty(_outputBase)) return _outputBase;
             string last = null;
             try { using (var k = Registry.CurrentUser.OpenSubKey(RegistryKey)) if (k != null) last = k.GetValue("OutputBase") as string; } catch { }
             if (!string.IsNullOrEmpty(last)) return last;
@@ -375,7 +378,7 @@ namespace GearSet
                     k.SetValue("LastFaceWidth", _faceWidth.Text);
                     k.SetValue("LastBacklash", _backlash.Text);
                     string parent = Path.GetDirectoryName(OutputFolder);
-                    if (!string.IsNullOrEmpty(parent)) k.SetValue("OutputBase", parent);
+                    if (!string.IsNullOrEmpty(parent) && string.IsNullOrEmpty(_outputBase)) k.SetValue("OutputBase", parent);
                 }
             }
             catch { /* not essential */ }
