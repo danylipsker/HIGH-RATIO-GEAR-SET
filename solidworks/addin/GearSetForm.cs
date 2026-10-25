@@ -16,6 +16,7 @@ namespace GearSet
 
         public GearModel Result { get; private set; }
         public string OutputFolder { get; private set; }
+        public bool AddMates { get { return _mates.Checked; } }
 
         private readonly string _root;
         private readonly TextBox _module = new TextBox { Width = 60, Text = "1" };
@@ -26,6 +27,7 @@ namespace GearSet
         private readonly TextBox _faceWidth = new TextBox { Width = 60 };
         private readonly TextBox _backlash = new TextBox { Width = 60, Text = "0" };
         private readonly TextBox _awMax = new TextBox { Width = 45, Text = "31" };
+        private readonly CheckBox _mates = new CheckBox { Text = "add mates so the assembly animates (drag the sun)", AutoSize = true, Checked = true };
         private readonly CheckBox _nearest = new CheckBox { Text = "if no exact set exists, show the nearest ratios", AutoSize = true, Checked = true };
         private readonly Button _find = new Button { Text = "Find solutions", Width = 120, Height = 28 };
         private readonly ListView _list = new ListView
@@ -125,6 +127,8 @@ namespace GearSet
             folderRow.Controls.Add(Bold("5. Folder for the .SLDPRT / .SLDASM files"));
             folderRow.Controls.Add(_folder);
             folderRow.Controls.Add(_browse);
+            _mates.Margin = new Padding(16, 7, 0, 0);
+            folderRow.Controls.Add(_mates);
             rootPanel.Controls.Add(folderRow);
 
             var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top, Margin = new Padding(0, 8, 0, 0) };
@@ -142,6 +146,7 @@ namespace GearSet
             _tips.SetToolTip(_awMax, "Design rule: working pressure angle of the profile-shifted ring mesh (31 deg default, up to ~34 possible)");
             _tips.SetToolTip(_backlash, "Circumferential backlash per mesh; teeth are thinned by half of it. 0 = theoretical, touching flanks");
             _tips.SetToolTip(_list, "Double-click a row to build it");
+            _tips.SetToolTip(_mates, "Coincident / concentric mates for the positions and gear mates with the exact speed ratios to the sun; one degree of freedom left");
 
             _find.Click += (s, e) => FindSolutions();
             _list.SelectedIndexChanged += (s, e) => UpdateDimensions();

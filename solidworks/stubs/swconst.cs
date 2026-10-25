@@ -11,6 +11,8 @@ namespace SolidWorks.Interop.swconst
     public enum swCustomInfoType_e { swCustomInfoText = 30 }
     public enum swCustomPropertyAddOption_e { swCustomPropertyReplaceValue = 1 }
     public enum swBodyType_e { swSolidBody = 0 }
+    public enum swMateType_e { swMateCOINCIDENT = 0, swMateCONCENTRIC = 1, swMatePARALLEL = 3, swMateGEAR = 10 }
+    public enum swMateAlign_e { swMateAlignALIGNED = 0, swMateAlignANTI_ALIGNED = 1, swMateAlignCLOSEST = 2 }
     public enum swCommandItemType_e { swMenuItem = 1, swToolbarItem = 2 }
     public enum swCommandTabButtonTextDisplay_e { swCommandTabButton_TextBelow = 2 }
     public enum swMessageBoxIcon_e { swMbWarning = 1, swMbInformation = 2 }

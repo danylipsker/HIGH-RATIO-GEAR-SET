@@ -19,6 +19,8 @@ namespace GearSet
         public List<string> Files = new List<string>();
         public string AssemblyPath;
         public string Folder;
+        public int MatesAdded, MatesWanted;
+        public List<string> MateReport = new List<string>();
     }
 
     public class GearBuilder
@@ -43,7 +45,7 @@ namespace GearSet
         private void Say(string s) { Log.Add(s); Progress(s); }
 
         /// <summary>Builds six parts and the assembly into <paramref name="outDir"/>; returns the file list.</summary>
-        public BuildResult Build(GearModel g, string outDir, bool closeParts)
+        public BuildResult Build(GearModel g, string outDir, bool closeParts, bool addMates = true)
         {
             Directory.CreateDirectory(outDir);
             var res = new BuildResult { Folder = outDir };
@@ -66,8 +68,8 @@ namespace GearSet
             paths["Carrier"] = BuildCarrier(g, outDir);
             foreach (var p in paths.Values) res.Files.Add(p);
 
-            Say("assembly");
-            res.AssemblyPath = BuildAssembly(g, paths, outDir);
+            Say("assembly" + (addMates ? " + mates" : ""));
+            res.AssemblyPath = BuildAssembly(g, paths, outDir, addMates, res);
             res.Files.Add(res.AssemblyPath);
             if (closeParts)
             {
@@ -153,19 +155,25 @@ namespace GearSet
         }
 
         // ------------------------------------------------------------------------------ assembly
-        private string BuildAssembly(GearModel g, Dictionary<string, string> paths, string outDir)
+        private string BuildAssembly(GearModel g, Dictionary<string, string> paths, string outDir, bool addMates, BuildResult res)
         {
             IModelDoc2 asmDoc = (IModelDoc2)_sw.NewDocument(_asmTemplate, 0, 0, 0);
             if (asmDoc == null) throw new InvalidOperationException("could not create an assembly from the default template");
             IAssemblyDoc asm = (IAssemblyDoc)asmDoc;
             int opt = (int)swAddComponentConfigOptions_e.swAddComponentConfigOptions_CurrentSelectedConfig;
             // the first component is fixed automatically -> the housing ring
-            Insert(asm, paths["FixedRing"], opt, 0, 0, 0);
-            Insert(asm, paths["OutputRing"], opt, 0, 0, 0);
-            Insert(asm, paths["Sun"], opt, 0, 0, 0);
-            Insert(asm, paths["Planet"], opt, g.A1 / 1000, 0, 0);
-            Insert(asm, paths["ThinRing"], opt, -g.E / 1000, 0, 0);
-            Insert(asm, paths["Carrier"], opt, 0, 0, 0);
+            var comps = new Dictionary<string, Component2>();
+            comps["FixedRing"] = Insert(asm, paths["FixedRing"], opt, 0, 0, 0);
+            comps["OutputRing"] = Insert(asm, paths["OutputRing"], opt, 0, 0, 0);
+            comps["Sun"] = Insert(asm, paths["Sun"], opt, 0, 0, 0);
+            comps["Planet"] = Insert(asm, paths["Planet"], opt, g.A1 / 1000, 0, 0);
+            comps["ThinRing"] = Insert(asm, paths["ThinRing"], opt, -g.E / 1000, 0, 0);
+            comps["Carrier"] = Insert(asm, paths["Carrier"], opt, 0, 0, 0);
+            if (addMates)
+            {
+                try { AddMates(asmDoc, g, comps, res); }
+                catch (Exception ex) { res.MateReport.Add("mates aborted: " + ex.Message); Log.Add("mates aborted: " + ex); }
+            }
             try
             {
                 CustomPropertyManager cpm = asmDoc.Extension.get_CustomPropertyManager("");
@@ -180,6 +188,7 @@ namespace GearSet
                 Prop(cpm, "CentreDistanceSunPlanet_mm", F(g.A1));
             }
             catch (Exception ex) { Log.Add("assembly properties: " + ex.Message); }
+            asmDoc.ForceRebuild3(false);
             asmDoc.ShowNamedView2("*Isometric", 7);
             asmDoc.ViewZoomtofit2();
             string path = Path.Combine(outDir, "GearSet.SLDASM");
@@ -187,7 +196,143 @@ namespace GearSet
             return path;
         }
 
-        private void Insert(IAssemblyDoc asm, string path, int opt, double x, double y, double z)
+        // ------------------------------------------------------------------------------ mates
+        // Positions: Front Plane of every part coincident with the fixed ring's (all parts are modelled from
+        // z = 0 in absolute Z), one concentric mate per moving part. Motion: SOLIDWORKS gear mates relate the
+        // spins of two components in the assembly frame, so a planetary train cannot use tooth counts between
+        // meshing pairs; instead every rotating part is geared directly to the sun with its absolute speed
+        // ratio from the kinematics (carrier, planet, thin ring, output ring). Result: one degree of freedom,
+        // drag the sun or put a rotary motor on it.
+        //
+        // Direction convention assumed for AddMate5 gear mates: Flip = false -> the two parts turn in opposite
+        // directions (external gear behaviour), Flip = true -> same direction. If the built assembly shows the
+        // carrier turning against the sun, invert GearMateFlipMeansSameDirection.
+        public static bool GearMateFlipMeansSameDirection = true;
+
+        private void AddMates(IModelDoc2 asmDoc, GearModel g, Dictionary<string, Component2> c, BuildResult res)
+        {
+            Design d = g.Design;
+            double tol = Math.Max(0.02, 0.02 * g.M);        // mm, radius match tolerance
+            // ---- rotation axis face of every part (cylindrical, on its own axis) --------------------------
+            IFace2 fFixed = FindCylinder(c["FixedRing"], g.RingOuterR, g.ZA0, g.ZA1, tol, "fixed ring outer");
+            IFace2 fOut = FindCylinder(c["OutputRing"], g.RingOuterR, g.ZB0, g.ZB1, tol, "output ring outer");
+            IFace2 fSun = FindCylinder(c["Sun"], g.ShaftD / 2, -g.ShaftIn, 0, tol, "sun shaft (input stub)");
+            IFace2 fCarBore = FindCylinder(c["Carrier"], g.CarrierBoreR, g.ZB0, g.ZB1, tol, "carrier bore");
+            IFace2 fPin = FindCylinder(c["Carrier"], g.PinD / 2, g.ZA0, g.ZB0, tol, "carrier pin");
+            IFace2 fJournal = FindCylinder(c["Carrier"], g.JournalR, g.ZB0, g.ZB1, tol, "carrier journal");
+            IFace2 fPlanet = FindCylinder(c["Planet"], g.PlanetBoreR, g.ZA0, g.ZA1, tol, "planet bore");
+            IFace2 fThin = FindCylinder(c["ThinRing"], g.ThinInt.Rf, g.ZA1, g.ZB1, tol, "thin ring bore");
+
+            // ---- axial position: Front Plane coincident with the fixed ring's Front Plane ----------------
+            Feature pFixed = FirstPlane(c["FixedRing"]);
+            foreach (string name in new[] { "OutputRing", "Sun", "Planet", "ThinRing", "Carrier" })
+                Mate(asmDoc, "front plane " + name, (int)swMateType_e.swMateCOINCIDENT, FirstPlane(c[name]), pFixed, false, 0, 0, res);
+
+            // ---- axes --------------------------------------------------------------------------------------
+            Mate(asmDoc, "concentric output ring / fixed ring", (int)swMateType_e.swMateCONCENTRIC, fOut, fFixed, false, 0, 0, res);
+            Mate(asmDoc, "concentric sun / fixed ring", (int)swMateType_e.swMateCONCENTRIC, fSun, fFixed, false, 0, 0, res);
+            Mate(asmDoc, "concentric carrier bore / sun shaft", (int)swMateType_e.swMateCONCENTRIC, fCarBore, fSun, false, 0, 0, res);
+            Mate(asmDoc, "concentric planet / carrier pin", (int)swMateType_e.swMateCONCENTRIC, fPlanet, fPin, false, 0, 0, res);
+            Mate(asmDoc, "concentric thin ring / carrier journal", (int)swMateType_e.swMateCONCENTRIC, fThin, fJournal, false, 0, 0, res);
+
+            // ---- motion: absolute speed ratios relative to the sun -----------------------------------------
+            double ks = (double)d.Zs * d.Zr2 / ((double)d.Zf * d.Zr1 + (double)d.Zs * d.Zr2);   // carrier
+            double kp = ks * (1.0 + (double)d.Zs / d.Zp) - (double)d.Zs / d.Zp;                  // planet spin
+            double kt = ks * (1.0 - (double)d.Zf / d.Zr2);                                        // thin ring spin
+            double ko = ks * (double)(d.Zo - d.Zf) / d.Zo;                                        // output ring
+            GearMate(asmDoc, "gear sun -> carrier", fSun, fCarBore, ks, res);
+            GearMate(asmDoc, "gear sun -> planet", fSun, fPlanet, kp, res);
+            GearMate(asmDoc, "gear sun -> thin ring", fSun, fThin, kt, res);
+            GearMate(asmDoc, "gear sun -> output ring", fSun, fOut, ko, res);
+            res.MateReport.Add(string.Format(CultureInfo.InvariantCulture,
+                "speed ratios to the sun: carrier {0:+0.000000;-0.000000}, planet {1:+0.000000;-0.000000}, thin ring {2:+0.000000;-0.000000}, output {3:+0.000000;-0.000000}",
+                ks, kp, kt, ko));
+        }
+
+        /// <summary>Gear mate sun -> part with |ratio| = spin of the part per spin of the sun; sign = direction.</summary>
+        private void GearMate(IModelDoc2 asmDoc, string what, IFace2 sun, IFace2 part, double ratio, BuildResult res)
+        {
+            bool sameDirection = ratio > 0;
+            bool flip = sameDirection == GearMateFlipMeansSameDirection;
+            // AddMate5: numerator belongs to the first selection (sun), denominator to the second:
+            // part turns numerator/denominator per sun turn.
+            Mate(asmDoc, what, (int)swMateType_e.swMateGEAR, sun, part, flip, Math.Abs(ratio), 1.0, res);
+        }
+
+        private void Mate(IModelDoc2 asmDoc, string what, int type, object a, object b, bool flip, double num, double den, BuildResult res)
+        {
+            res.MatesWanted++;
+            if (a == null || b == null) { res.MateReport.Add(what + ": skipped (entity not found)"); return; }
+            int err = 0;
+            asmDoc.ClearSelection2(true);
+            if (!SelectForMate(asmDoc, a, false) || !SelectForMate(asmDoc, b, true))
+            {
+                asmDoc.ClearSelection2(true);
+                res.MateReport.Add(what + ": selection failed");
+                return;
+            }
+            IAssemblyDoc asm = (IAssemblyDoc)asmDoc;
+            object mate = asm.AddMate5(type, (int)swMateAlign_e.swMateAlignCLOSEST, flip, 0, 0, 0, num, den, 0, 0, 0, false, false, 0, out err);
+            asmDoc.ClearSelection2(true);
+            if (mate == null) { res.MateReport.Add(what + ": AddMate5 failed (error " + err + ")"); return; }
+            res.MatesAdded++;
+            res.MateReport.Add(what + ": ok");
+        }
+
+        private static bool SelectForMate(IModelDoc2 asmDoc, object entity, bool append)
+        {
+            Feature feat = entity as Feature;
+            if (feat != null) return feat.Select2(append, 1);
+            SelectData data = (SelectData)((ISelectionMgr)asmDoc.SelectionManager).CreateSelectData();
+            data.Mark = 1;
+            return ((Entity)entity).Select4(append, data);
+        }
+
+        /// <summary>First reference plane feature of a component (its Front Plane in any language).</summary>
+        private static Feature FirstPlane(Component2 comp)
+        {
+            Feature f = (Feature)comp.FirstFeature();
+            while (f != null && f.GetTypeName2() != "RefPlane") f = (Feature)f.GetNextFeature();
+            return f;
+        }
+
+        /// <summary>
+        /// Cylindrical face of the component with this radius (mm), axis along Z, lying within the z range (mm,
+        /// part coordinates = assembly Z since nothing is rotated or moved in Z). null if none.
+        /// </summary>
+        private IFace2 FindCylinder(Component2 comp, double radiusMm, double zMinMm, double zMaxMm, double tolMm, string what)
+        {
+            object bodyInfo;
+            object[] bodies = comp.GetBodies3((int)swBodyType_e.swSolidBody, out bodyInfo) as object[];
+            if (bodies == null || bodies.Length == 0) { Log.Add(what + ": component has no body"); return null; }
+            IFace2 best = null;
+            double bestErr = double.MaxValue;
+            foreach (object bo in bodies)
+            {
+                IBody2 body = (IBody2)bo;
+                object[] faces = body.GetFaces() as object[];
+                if (faces == null) continue;
+                foreach (object fo in faces)
+                {
+                    IFace2 f = (IFace2)fo;
+                    ISurface s = (ISurface)f.GetSurface();
+                    if (!s.IsCylinder()) continue;
+                    double[] p = (double[])s.CylinderParams;          // origin xyz, axis xyz, radius (metres)
+                    if (Math.Abs(p[5]) < 0.999) continue;               // axis not along Z
+                    double rErr = Math.Abs(p[6] * 1000 - radiusMm);
+                    if (rErr > tolMm) continue;
+                    double[] box = (double[])f.GetBox();
+                    double z0 = Math.Min(box[2], box[5]) * 1000, z1 = Math.Max(box[2], box[5]) * 1000;
+                    if (z1 < zMinMm - tolMm || z0 > zMaxMm + tolMm) continue;   // outside the wanted z range
+                    double err = rErr + 1e-3 * (Math.Abs(z0 - zMinMm) + Math.Abs(z1 - zMaxMm));
+                    if (err < bestErr) { bestErr = err; best = f; }
+                }
+            }
+            if (best == null) Log.Add(what + ": no cylindrical face r=" + radiusMm.ToString("0.###", CultureInfo.InvariantCulture) + " in z " + zMinMm + ".." + zMaxMm);
+            return best;
+        }
+
+        private Component2 Insert(IAssemblyDoc asm, string path, int opt, double x, double y, double z)
         {
             Component2 c = asm.AddComponent5(path, opt, "", false, "", x, y, z);
             if (c == null)
@@ -198,6 +343,7 @@ namespace GearSet
                 c = asm.AddComponent5(path, opt, "", false, "", x, y, z);
             }
             if (c == null) throw new InvalidOperationException("could not insert " + Path.GetFileName(path) + " into the assembly");
+            return c;
         }
 
         // ------------------------------------------------------------------------------ sketch helpers

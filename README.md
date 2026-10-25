@@ -109,6 +109,13 @@ a **Gear Set** tab appears with *Create gear set...*:
    `.SLDPRT` and `GearSet.SLDASM` into the chosen folder (default `output\<set name>`), nothing else.
    The teeth are true involutes with the profile shift, already phased so the assembly meshes;
    custom properties carry teeth, module, ratio and the main dimensions. The assembly stays open.
+5. With **add mates** ticked (default) the assembly is fully mated with one degree of freedom: Front
+   Planes coincident for the axial positions, concentric mates on the sun shaft, carrier pin, carrier
+   journal and ring cylinders, and four gear mates that tie carrier, planet, thin ring and output ring
+   to the sun with their exact speed ratios (for 1:500: 0.15, 0.87, 0.05 and 0.002 turns per sun turn).
+   Drag the sun, or add a rotary motor to it in a Motion Study: ten sun turns give 7.2° on the output
+   ring, opposite direction. (SOLIDWORKS gear mates work in the assembly frame, which is why the parts
+   are geared to the sun with absolute ratios rather than to each other with tooth counts.)
 
 Command line, same code: `swcli\bin\Release\GearSetCli.exe solve -ratio 500 -module 1` (table, no
 SOLIDWORKS), `GearSetCli.exe test-dialog` (dialog alone), `GearSetCli.exe build -ratio 500 -module 1 -pick 1`

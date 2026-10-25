@@ -33,7 +33,14 @@ File... -> `output\ratio-500_m1\BuildGearSet.bas` -> delete the empty default mo
 Expected: a scratch part is created and closed (direction calibration), then six parts and
 `GearSet.SLDASM` are saved in the folder, and a message box reports the ratio. 1-3 minutes.
 
-## Verification checklist (items 1-3 passed on 2026-10-25 via the add-in; 4-5 open)
+## Verification checklist (items 1-3 passed on 2026-10-25 via the add-in; 4 now automated, verify once; 5 open)
+Item 4 is built in: GearBuilder.AddMates adds Front-Plane coincident mates, concentric mates and gear
+mates sun->carrier/planet/thin ring/output with the absolute speed ratios (ks, kp, kt, ko). To verify:
+drag the sun - the carrier must turn the SAME way as the sun, the planet, thin ring and output ring the
+OPPOSITE way (for the default set), and 10 sun turns give 7.2 deg on the output ring. If the carrier
+turns against the sun, the AddMate5 Flip convention is inverted: set GearBuilder.GearMateFlipMeansSameDirection
+= false, rebuild, re-run. The message box after a build reports every mate (ok / entity not found /
+AddMate5 error); the same lines are in %TEMP%\GearSetAddin.log.
 1. Macro runs to the final message box without an error box. If it stops, the error names the step
    (`gStep`) - see "Known risk points" below.
 2. Every part rebuilds without errors; each gear has the expected tooth count (custom property `Teeth`,

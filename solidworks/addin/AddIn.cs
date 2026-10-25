@@ -152,31 +152,35 @@ namespace GearSet
         {
             try
             {
-                GearModel model; string folder;
+                GearModel model; string folder; bool mates;
                 using (var form = new GearSetForm(FindRoot()))
                 {
                     if (form.ShowDialog() != DialogResult.OK) return;
-                    model = form.Result; folder = form.OutputFolder;
+                    model = form.Result; folder = form.OutputFolder; mates = form.AddMates;
                 }
                 string message;
-                bool ok = BuildNow(model, folder, out message);
+                bool ok = BuildNow(model, folder, mates, out message);
                 Msg(message, !ok);
             }
             catch (Exception ex) { Msg("Gear Set error:\n" + ex, true); }
         }
 
         /// <summary>Headless build (same pipeline as the dialog) for automation and tests.</summary>
-        public bool BuildNow(GearModel model, string folder, out string message)
+        public bool BuildNow(GearModel model, string folder, bool addMates, out string message)
         {
             Cursor.Current = Cursors.WaitCursor;
             try
             {
                 var builder = new GearBuilder(_sw);
                 builder.Progress = s => Log(s);
-                BuildResult r = builder.Build(model, folder, true);
+                BuildResult r = builder.Build(model, folder, true, addMates);
+                foreach (string line in r.MateReport) Log("mate: " + line);
                 try { using (var k = Registry.CurrentUser.CreateSubKey(GearSetForm.RegistryKey)) if (k != null) k.SetValue("LastFolder", r.Folder); } catch { }
+                string mateText = !addMates ? "No mates added (unticked)." :
+                    r.MatesAdded == r.MatesWanted ? "Mates: all " + r.MatesAdded + " added - drag the sun to animate, or put a rotary motor on it in a Motion Study."
+                                                  : "Mates: " + r.MatesAdded + " of " + r.MatesWanted + " added:\n" + string.Join("\n", r.MateReport.ToArray());
                 message = "Gear set " + model.Name + " built.\n\n" + string.Join("\n", r.Files.ConvertAll(p => Path.GetFileName(p)).ToArray())
-                        + "\n\nin " + r.Folder + "\n\n" + model.DimensionsText();
+                        + "\n\nin " + r.Folder + "\n\n" + mateText + "\n\n" + model.DimensionsText();
                 return true;
             }
             catch (Exception ex)

@@ -21,6 +21,7 @@ namespace SolidWorks.Interop.sldworks
         FeatureManager FeatureManager { get; }
         ModelDocExtension Extension { get; }
         object FirstFeature();
+        object SelectionManager { get; }
         void ClearSelection2(bool all);
         string GetTitle();
         bool ForceRebuild3(bool topOnly);
@@ -57,13 +58,23 @@ namespace SolidWorks.Interop.sldworks
     public interface ISketchArc { object GetNormalVector(); }
     public interface SketchArc : ISketchArc { }
     public interface IPartDoc { object GetBodies2(int bodyType, bool visibleOnly); }
-    public interface IBody2 { object GetBodyBox(); }
+    public interface IBody2 { object GetBodyBox(); object GetFaces(); }
     public interface Body2 : IBody2 { }
     public interface IAssemblyDoc
     {
         Component2 AddComponent5(string compName, int configOption, string newConfigName, bool useConfigForPartReferences, string existingConfigName, double x, double y, double z);
+        object AddMate5(int mateTypeFromEnum, int alignFromEnum, bool flip, double distance, double distanceAbsUpperLimit, double distanceAbsLowerLimit,
+            double gearRatioNumerator, double gearRatioDenominator, double angle, double angleAbsUpperLimit, double angleAbsLowerLimit,
+            bool forPositioningOnly, bool lockRotation, int widthMateOption, out int errorStatus);
     }
-    public interface IComponent2 { string Name2 { get; } }
+    public interface IComponent2 { string Name2 { get; } object GetBodies3(int bodyType, out object bodyInfo); object FirstFeature(); }
+    public interface IEntity { bool Select4(bool append, SelectData data); }
+    public interface Entity : IEntity { }
+    public interface ISelectData { int Mark { get; set; } }
+    public interface SelectData : ISelectData { }
+    public interface ISelectionMgr { object CreateSelectData(); }
+    public interface IFace2 : IEntity { object GetSurface(); object GetBox(); }
+    public interface ISurface { bool IsCylinder(); bool IsPlane(); object CylinderParams { get; } }
     public interface Component2 : IComponent2 { }
     public interface IModelDocExtension
     {

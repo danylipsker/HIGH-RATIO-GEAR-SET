@@ -29,7 +29,7 @@ namespace GearSet.Cli
         {
             Console.WriteLine("GearSetCli solve -ratio 500 [-module 1] [-sun 16] [-planet 32] [-nearest] [-aw 31] [-max-od 150]");
             Console.WriteLine("GearSetCli test-dialog                     the dialog alone, no SOLIDWORKS");
-            Console.WriteLine("GearSetCli build -ratio 500 [-module 1] [-pick 1] [-out <folder>] [-sun N] [-planet N] [-backlash 0.05]");
+            Console.WriteLine("GearSetCli build -ratio 500 [-module 1] [-pick 1] [-out <folder>] [-sun N] [-planet N] [-backlash 0.05] [-no-mates]");
             Console.WriteLine("                 [-sw 2020] [-new] [-show]   uses the running SOLIDWORKS, or starts one (-new; hidden unless -show)");
         }
 
@@ -144,8 +144,9 @@ namespace GearSet.Cli
             Console.WriteLine();
             Console.WriteLine(model.DimensionsText());
             var builder = new GearBuilder(sw) { Progress = s => Console.WriteLine("  " + s) };
-            BuildResult r = builder.Build(model, outDir, true);
+            BuildResult r = builder.Build(model, outDir, true, Get(o, "no-mates") == null);
             foreach (string f in r.Files) Console.WriteLine(f);
+            foreach (string line in r.MateReport) Console.WriteLine("  mate: " + line);
             return 0;
         }
 
