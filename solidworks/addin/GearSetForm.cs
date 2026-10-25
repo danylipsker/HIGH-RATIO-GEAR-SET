@@ -42,7 +42,7 @@ namespace GearSet
             Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill,
             Font = new Font("Consolas", 9f), BackColor = SystemColors.Window,
         };
-        private readonly TextBox _folder = new TextBox { Width = 420 };
+        private readonly TextBox _folder = new TextBox { Width = 330 };
         private readonly Button _browse = new Button { Text = "...", Width = 32 };
         private readonly Button _build = new Button { Text = "Build SOLIDWORKS files", Width = 170, Height = 30, Enabled = false };
         private readonly Button _close = new Button { Text = "Close", Width = 90, Height = 30, DialogResult = DialogResult.Cancel };
