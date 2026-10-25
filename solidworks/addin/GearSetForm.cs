@@ -91,9 +91,9 @@ namespace GearSet
             row2.Controls.Add(_faceWidth);
             row2.Controls.Add(Plain("mm (blank = 10 x module)     backlash"));
             row2.Controls.Add(_backlash);
-            row2.Controls.Add(Plain("mm     max working pressure angle"));
+            row2.Controls.Add(Plain("mm     max α_w"));
             row2.Controls.Add(_awMax);
-            row2.Controls.Add(Plain("deg     "));
+            row2.Controls.Add(Plain("deg   "));
             row2.Controls.Add(_nearest);
             rootPanel.Controls.Add(row2);
 

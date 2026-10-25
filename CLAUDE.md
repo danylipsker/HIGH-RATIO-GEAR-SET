@@ -11,9 +11,11 @@ rejects, and confirm the assembly meshes. Dany is the user; SolidWorks 2020 is i
   `GearBuilder.cs` (parts + assembly through the API), `install.ps1` (build with MSBuild/dotnet, RegAsm).
   `solidworks/swcli/GearSetCli.exe` shares the same files: `solve` and `test-dialog` need no SOLIDWORKS,
   `build` drives it. Build + register: `solidworks\addin\install.ps1`. Log: `%TEMP%\GearSetAddin.log`.
-  The add-in has never been compiled or run (no SOLIDWORKS / .NET here): the first job is
-  `install.ps1 -BuildOnly`, fix compile errors, then `GearSetCli.exe solve -ratio 500` must print the same
-  tooth sets as `python gearset.py --ratio 500 --list 12` (24/20/102/114/152/150 first), then
+  Verified so far without SOLIDWORKS: `solidworks/stubs/compile_check.sh` compiles the add-in and the CLI
+  with Mono against stub interop signatures (0 errors), `GearSetCli solve -ratio 500` prints the same
+  tooth sets as `python gearset.py --ratio 500` (24/20/102/114/152/150 first), and the dialog runs under
+  Xvfb. NOT yet done: the real build with the SOLIDWORKS 2020 interop (`install.ps1`) and a real build of
+  the parts. First job on the Windows machine: `install.ps1`, then
   `GearSetCli.exe build -ratio 500 -module 1 -show` and the checklist below on the result.
 - `gearset.py` - generator (solver, involutes, DXF/STL/SVG/report, fills the macro template). Python 3,
   stdlib; numpy + Pillow optional (rolling check, STL, PNG).
