@@ -14,6 +14,8 @@ path (same geometry, older delivery). Dany is the user; SolidWorks 2020 is insta
   `solidworks/swcli/GearSetCli.exe` shares the same files: `solve` and `test-dialog` need no SOLIDWORKS,
   `build` drives it. Build + register: `solidworks\addin\install.ps1`. Log: `%TEMP%\GearSetAddin.log`.
   Verified: `solidworks/stubs/compile_check.sh` (Mono, stub interop, 0 errors; run it after every C# change),
+  `GearSetCli solve -set ... -dump <gear>` prints a gear outline that equals `GearGeom.polyline()` of
+  gearset.py to 1e-13 mm (run this comparison after any geometry change in either language),
   `GearSetCli solve -ratio 500` equals `python gearset.py --ratio 500` (24/20/102/114/152/150 first), the
   real `install.ps1` build on SolidWorks 2020, and a real build of the default set with zero interferences.
   Registration note: SolidWorks lists the add-in from HKLM *or* HKCU `Software\SolidWorks\Addins\{guid}`;
@@ -78,6 +80,15 @@ AddMate5 error); the same lines are in %TEMP%\GearSetAddin.log.
   `GetBodyBox`, `GetNormalVector`, `FirstFeature`, `GetNextFeature` return `object` and are cast.
   If `FeatureExtrusion3` does not exist in the referenced interop, the project is compiling against a
   pre-2014 version: check `SwVersion` / `SwInstallDir` in the csproj.
+
+## Geometry rules shared by gearset.py and GearMath.cs (keep them identical)
+- Tooth outline per tooth, counter-clockwise: root arc, [root fillet], [radial line rf->rb for small
+  external pinions], leading flank spline, tip arc, trailing flank, [line], [fillet]. Internal gears:
+  root arc (outer), fillet, flank inwards, tip arc (inner), flank outwards, fillet.
+- Root fillet: circle tangent to the root circle and to the flank's start direction (radial line, or the
+  involute tangent at the root), radius FilletMod x module (default 0.30), shrunk by 0.8 steps until it
+  ends below the base circle / tip and stays within half the tooth space. Fillet arcs are true arcs in
+  SolidWorks and DXF; the flank spline starts exactly at the fillet end.
 
 ## Conventions
 - API lengths in metres, parameters in mm/degrees; all parts share the sun axis as Z, Front Plane as

@@ -19,6 +19,7 @@
 "PinDiameter" = 18
 "FitClearance" = 0.113
 "Backlash" = 0
+"RootFilletModules" = 0.3
 "Phase_sun_deg" = 0.000000
 "TipRadius_sun" = 11.250000
 "RootRadius_sun" = 8.437500

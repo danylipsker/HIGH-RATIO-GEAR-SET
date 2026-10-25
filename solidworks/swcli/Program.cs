@@ -29,6 +29,7 @@ namespace GearSet.Cli
         {
             Console.WriteLine("GearSetCli solve -ratio 500 [-module 1] [-sun 16] [-planet 32] [-nearest] [-aw 31] [-max-od 150]");
             Console.WriteLine("GearSetCli solve -set 16,32,115,123,158,155 -module 1.5          exactly this tooth set (also for build)");
+            Console.WriteLine("GearSetCli solve ... -fillet 0.3 (x module, 0 = sharp)   -dump sun|planet|thinint|thinext|fixed|output  prints the outline");
             Console.WriteLine("GearSetCli test-dialog                     the dialog alone, no SOLIDWORKS");
             Console.WriteLine("GearSetCli build -ratio 500 [-module 1] [-pick 1] [-out <folder>] [-sun N] [-planet N] [-backlash 0.05] [-no-mates]");
             Console.WriteLine("                 [-sw 2020] [-new] [-show]   uses the running SOLIDWORKS, or starts one (-new; hidden unless -show)");
@@ -142,7 +143,8 @@ namespace GearSet.Cli
             {
                 var g = GearModel.Create(c.Design, m, Dbl(o, "face", 0), 0, Dbl(o, "backlash", 0), 0, 0, 5.0, 6,
                     "ratio-" + target.Value.ToString("0.##", CultureInfo.InvariantCulture) + "_m" + m.ToString("0.###", CultureInfo.InvariantCulture)
-                    + "_" + c.Design.Zs + "-" + c.Design.Zp + "-" + c.Design.Zr1 + "-" + c.Design.Zr2 + "-" + c.Design.Zf + "-" + c.Design.Zo);
+                    + "_" + c.Design.Zs + "-" + c.Design.Zp + "-" + c.Design.Zr1 + "-" + c.Design.Zr2 + "-" + c.Design.Zf + "-" + c.Design.Zo,
+                    Dbl(o, "fillet", 0.3));
                 if (maxOd > 0 && g.RingOD > maxOd) continue;
                 models.Add(g);
                 var d = c.Design;
@@ -151,6 +153,17 @@ namespace GearSet.Cli
                     g.Notes.Count > 0 ? "  ! " + g.Notes[0] : ""));
             }
             if (models.Count == 0) { Console.WriteLine("  none - free the tooth counts, raise -aw, or use -nearest"); return 3; }
+            if (Get(o, "dump") != null)
+            {
+                // polar outline of one gear (sun, planet, thinint, thinext, fixed, output) for cross-checks against gearset.py
+                GearModel gm = models[0];
+                string which = Get(o, "dump").ToLowerInvariant();
+                GearGeom gg = which == "planet" ? gm.Planet : which == "thinint" ? gm.ThinInt : which == "thinext" ? gm.ThinExt
+                            : which == "fixed" ? gm.Fixed : which == "output" ? gm.Output : gm.Sun;
+                foreach (double[] pt in gg.Polyline(12, 1.0))
+                    Console.WriteLine(pt[0].ToString("R", CultureInfo.InvariantCulture) + " " + pt[1].ToString("R", CultureInfo.InvariantCulture));
+                return 0;
+            }
             if (sw == null) return 0;
 
             int pick = (int)Dbl(o, "pick", 1);

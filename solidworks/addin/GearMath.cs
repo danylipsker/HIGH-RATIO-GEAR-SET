@@ -296,26 +296,42 @@ namespace GearSet
     // ------------------------------------------------------------------------------------------------
     // geometry
     // ------------------------------------------------------------------------------------------------
-    public enum SegKind { Arc, Line, Spline }
+    public enum SegKind { Arc, Line, Spline, Fillet }
 
-    /// <summary>One piece of a tooth outline, as polar points (rho mm, theta rad) about the gear centre.</summary>
+    /// <summary>One piece of a tooth outline, as polar points (rho mm, theta rad) about the gear centre.
+    /// Arc: about the gear centre, Rho[0] radius, Theta[0]..Theta[1] counter-clockwise.
+    /// Fillet: arc about (Cx, Cy) (gear coords, mm) with radius R, traversed from the first to the last point,
+    /// counter-clockwise about its centre when Ccw; points are a sampling of it.</summary>
     public class Segment
     {
         public SegKind Kind;
         public double[] Rho, Theta;
+        public double Cx, Cy, R;
+        public bool Ccw;
+    }
+
+    /// <summary>Root fillet of one tooth flank, tooth centre at angle 0, leading (negative-angle) side.</summary>
+    public class FilletGeom
+    {
+        public double Rho, Cx, Cy;          // radius and centre (mm)
+        public double T2R, T2Th;            // tangent point on the root circle (polar)
+        public double T1R, T1Th;            // tangent point on the flank / radial line (polar)
+        public bool Ccw;                    // traversal T2 -> T1 is counter-clockwise about the centre
+        public double[] PtsR, PtsTh;        // sampled points T2 -> T1 (polar about the gear centre)
     }
 
     public class GearGeom
     {
         public string Name;
         public bool Internal;
-        public double M, Alpha, X, Phase, Thinning;
+        public double M, Alpha, X, Phase, Thinning, FilletReq;
         public int Z;
         public double R, Rb, Ra, Rf, HalfRef;
+        public FilletGeom Fil;              // null = sharp root corner
 
-        public GearGeom(string name, bool isInternal, double m, int z, double alphaRad, double x, double phase, double thinning)
+        public GearGeom(string name, bool isInternal, double m, int z, double alphaRad, double x, double phase, double thinning, double filletMm = 0.0)
         {
-            Name = name; Internal = isInternal; M = m; Z = z; Alpha = alphaRad; X = x; Phase = phase; Thinning = thinning;
+            Name = name; Internal = isInternal; M = m; Z = z; Alpha = alphaRad; X = x; Phase = phase; Thinning = thinning; FilletReq = filletMm;
             R = m * z / 2;
             Rb = R * Math.Cos(alphaRad);
             const double ha = 1.0, c = 0.25;
@@ -333,9 +349,94 @@ namespace GearSet
                 s = m * (Math.PI / 2 - 2 * x * Math.Tan(alphaRad));
             }
             HalfRef = (s - thinning) / (2 * R);
+            Fil = ComputeFillet();
         }
 
         public double Pitch { get { return 2 * Math.PI / Z; } }
+
+        private double[] FlankPoint(double rho)
+        {
+            double t = -HalfAngle(rho);
+            return new[] { rho * Math.Cos(t), rho * Math.Sin(t) };
+        }
+
+        /// <summary>Circular fillet tangent to the root circle and to the leading flank (or its radial root line).</summary>
+        private FilletGeom ComputeFillet()
+        {
+            if (FilletReq <= 0) return null;
+            bool ext = !Internal;
+            double pitch = Pitch, th0;
+            double[] p0, d;
+            if (ext && Rb > Rf + 1e-9)
+            {
+                th0 = -HalfAngle(Rb);
+                p0 = new[] { Rf * Math.Cos(th0), Rf * Math.Sin(th0) };
+                d = new[] { Math.Cos(th0), Math.Sin(th0) };
+            }
+            else
+            {
+                th0 = -HalfAngle(Rf);
+                p0 = new[] { Rf * Math.Cos(th0), Rf * Math.Sin(th0) };
+                double eps = 1e-4 * M;
+                double[] q = ext ? FlankPoint(Rf + eps) : FlankPoint(Rf - eps);
+                d = new[] { q[0] - p0[0], q[1] - p0[1] };
+                double ln = Math.Sqrt(d[0] * d[0] + d[1] * d[1]);
+                d[0] /= ln; d[1] /= ln;
+            }
+            double[] eSpace = { Math.Sin(th0), -Math.Cos(th0) };
+            double[] n = { -d[1], d[0] };
+            if (n[0] * eSpace[0] + n[1] * eSpace[1] < 0) { n[0] = -n[0]; n[1] = -n[1]; }
+            double rho = FilletReq;
+            for (int iter = 0; iter < 40; iter++)
+            {
+                if (rho < 0.02 * M) return null;
+                double Rc = ext ? Rf + rho : Rf - rho;
+                double qx = p0[0] + rho * n[0], qy = p0[1] + rho * n[1];
+                double b = qx * d[0] + qy * d[1];
+                double c = qx * qx + qy * qy - Rc * Rc;
+                double disc = b * b - c;
+                bool ok = disc >= 0;
+                double sdist = 0, cx = 0, cy = 0, r1 = 0, th2 = 0;
+                double[] t1 = null, t2 = null;
+                if (ok)
+                {
+                    double ra_ = -b - Math.Sqrt(disc), rb_ = -b + Math.Sqrt(disc);
+                    if (ra_ >= -1e-12) sdist = ra_; else if (rb_ >= -1e-12) sdist = rb_; else ok = false;
+                }
+                if (ok)
+                {
+                    cx = qx + sdist * d[0]; cy = qy + sdist * d[1];
+                    t1 = new[] { p0[0] + sdist * d[0], p0[1] + sdist * d[1] };
+                    double cl = Math.Sqrt(cx * cx + cy * cy);
+                    t2 = new[] { cx / cl * Rf, cy / cl * Rf };
+                    r1 = Math.Sqrt(t1[0] * t1[0] + t1[1] * t1[1]);
+                    th2 = Math.Atan2(t2[1], t2[0]);
+                    if (ext) ok = (Rb > Rf + 1e-9 ? r1 <= Rb + 1e-9 : r1 <= Ra - 0.5 * M) && th2 > -pitch / 2 + 1e-6;
+                    else ok = r1 >= Ra + 0.3 * M && th2 > -pitch / 2 + 1e-6;
+                }
+                if (ok)
+                {
+                    double a2 = Math.Atan2(t2[1] - cy, t2[0] - cx);
+                    double a1 = Math.Atan2(t1[1] - cy, t1[0] - cx);
+                    double da = a1 - a2 + Math.PI;
+                    da = da - Math.Floor(da / (2 * Math.PI)) * (2 * Math.PI) - Math.PI;
+                    const int npts = 7;
+                    var f = new FilletGeom { Rho = rho, Cx = cx, Cy = cy, Ccw = da > 0, PtsR = new double[npts], PtsTh = new double[npts] };
+                    for (int k = 0; k < npts; k++)
+                    {
+                        double a = a2 + da * k / (npts - 1);
+                        double x = cx + rho * Math.Cos(a), y = cy + rho * Math.Sin(a);
+                        f.PtsR[k] = Math.Sqrt(x * x + y * y); f.PtsTh[k] = Math.Atan2(y, x);
+                    }
+                    f.PtsR[0] = Rf; f.PtsTh[0] = th2;
+                    f.PtsR[npts - 1] = r1; f.PtsTh[npts - 1] = Math.Atan2(t1[1], t1[0]);
+                    f.T2R = Rf; f.T2Th = th2; f.T1R = r1; f.T1Th = f.PtsTh[npts - 1];
+                    return f;
+                }
+                rho *= 0.8;
+            }
+            return null;
+        }
 
         /// <summary>Half tooth angle at radius rho (involute part).</summary>
         public double HalfAngle(double rho)
@@ -349,6 +450,8 @@ namespace GearSet
         {
             double lo = Internal ? Math.Max(Rb, Ra) : Math.Max(Rb, Rf);
             double hi = Internal ? Rf : Ra;
+            if (Fil != null && !Internal && Rb <= Rf + 1e-9) lo = Fil.T1R;      // flank starts where the fillet ends
+            if (Fil != null && Internal) hi = Fil.T1R;
             var r = new double[n];
             for (int k = 0; k < n; k++) r[k] = lo + (hi - lo) * Math.Pow((double)k / (n - 1), 1.3);
             r[0] = lo; r[n - 1] = hi;
@@ -362,27 +465,106 @@ namespace GearSet
             double pitch = Pitch;
             double[] radii = FlankRadii(nFlank);
             var segs = new List<Segment>();
+            FilletGeom fil = Fil;
+            double hTip = HalfAngle(Ra);
             if (!Internal)
             {
                 double h0 = HalfAngle(radii[0]);
-                double hTip = HalfAngle(Ra);
-                segs.Add(Arc(Rf, tc - pitch + h0, tc - h0));
-                if (Rb > Rf + 1e-9) segs.Add(Line(Rf, tc - h0, Rb, tc - h0));
-                segs.Add(Flank(radii, tc, -1, false));
+                double rootEdge = fil != null ? -fil.T2Th : h0;
+                segs.Add(Arc(Rf, tc - pitch + rootEdge, tc - rootEdge));
+                Segment lead;
+                if (fil != null)
+                {
+                    segs.Add(FilletSeg(tc, false));
+                    if (Rb > Rf + 1e-9 && Rb > fil.T1R + 1e-9) segs.Add(Line(fil.T1R, tc + fil.T1Th, Rb, tc - h0));
+                    lead = Flank(radii, tc, -1, false);
+                    lead.Rho[0] = fil.T1R; lead.Theta[0] = tc + fil.T1Th;
+                }
+                else
+                {
+                    if (Rb > Rf + 1e-9) segs.Add(Line(Rf, tc - h0, Rb, tc - h0));
+                    lead = Flank(radii, tc, -1, false);
+                }
+                segs.Add(lead);
                 segs.Add(Arc(Ra, tc - hTip, tc + hTip));
-                segs.Add(Flank(radii, tc, +1, true));
-                if (Rb > Rf + 1e-9) segs.Add(Line(Rb, tc + h0, Rf, tc + h0));
+                segs.Add(Mirror(lead, tc));
+                if (fil != null)
+                {
+                    if (Rb > Rf + 1e-9 && Rb > fil.T1R + 1e-9) segs.Add(Line(Rb, tc + h0, fil.T1R, tc - fil.T1Th));
+                    segs.Add(FilletSeg(tc, true));
+                }
+                else if (Rb > Rf + 1e-9) segs.Add(Line(Rb, tc + h0, Rf, tc + h0));
             }
             else
             {
                 double hf = HalfAngle(Rf);
-                double hTip = HalfAngle(Ra);
-                segs.Add(Arc(Rf, tc - pitch + hf, tc - hf));
-                segs.Add(Flank(radii, tc, -1, true));       // from root (outer) inwards to the tip
+                double rootEdge = fil != null ? -fil.T2Th : hf;
+                segs.Add(Arc(Rf, tc - pitch + rootEdge, tc - rootEdge));
+                Segment lead = Flank(radii, tc, -1, true);          // from the root (outer) inwards to the tip
+                if (fil != null)
+                {
+                    segs.Add(FilletSeg(tc, false));
+                    lead.Rho[0] = fil.T1R; lead.Theta[0] = tc + fil.T1Th;
+                }
+                segs.Add(lead);
                 segs.Add(Arc(Ra, tc - hTip, tc + hTip));
-                segs.Add(Flank(radii, tc, +1, false));      // from tip outwards to the root
+                segs.Add(Mirror(lead, tc));
+                if (fil != null) segs.Add(FilletSeg(tc, true));
             }
             return segs;
+        }
+
+        /// <summary>The trailing-flank copy of a leading-flank segment: mirrored about the tooth centre line, reversed.</summary>
+        private static Segment Mirror(Segment lead, double tc)
+        {
+            int n = lead.Rho.Length;
+            var seg = new Segment { Kind = lead.Kind, Rho = new double[n], Theta = new double[n] };
+            for (int i = 0; i < n; i++) { seg.Rho[i] = lead.Rho[n - 1 - i]; seg.Theta[i] = tc - (lead.Theta[n - 1 - i] - tc); }
+            return seg;
+        }
+
+        private Segment FilletSeg(double tc, bool mirror)
+        {
+            FilletGeom f = Fil;
+            int n = f.PtsR.Length;
+            var seg = new Segment { Kind = SegKind.Fillet, Rho = new double[n], Theta = new double[n], R = f.Rho };
+            double c = Math.Cos(tc), s = Math.Sin(tc);
+            if (!mirror)
+            {
+                for (int i = 0; i < n; i++) { seg.Rho[i] = f.PtsR[i]; seg.Theta[i] = tc + f.PtsTh[i]; }
+                seg.Cx = f.Cx * c - f.Cy * s; seg.Cy = f.Cx * s + f.Cy * c;
+                seg.Ccw = f.Ccw;
+            }
+            else
+            {
+                for (int i = 0; i < n; i++) { seg.Rho[i] = f.PtsR[n - 1 - i]; seg.Theta[i] = tc - f.PtsTh[n - 1 - i]; }
+                seg.Cx = f.Cx * c + f.Cy * s; seg.Cy = f.Cx * s - f.Cy * c;
+                seg.Ccw = !f.Ccw;
+            }
+            return seg;
+        }
+
+        /// <summary>Closed outline as polar points (theta increasing), arcs sampled every arcStepDeg - same as gearset.py.</summary>
+        public List<double[]> Polyline(int nFlank, double arcStepDeg)
+        {
+            var pts = new List<double[]>();
+            for (int k = 0; k < Z; k++)
+                foreach (Segment seg in ToothSegments(k, nFlank))
+                {
+                    var p = new List<double[]>();
+                    if (seg.Kind == SegKind.Arc)
+                    {
+                        double t0 = seg.Theta[0], t1 = seg.Theta[1];
+                        int n = Math.Max(2, (int)Math.Ceiling((t1 - t0) * 180 / Math.PI / arcStepDeg) + 1);
+                        for (int j = 0; j < n; j++) p.Add(new[] { seg.Rho[0], t0 + (t1 - t0) * j / (n - 1) });
+                    }
+                    else
+                        for (int j = 0; j < seg.Rho.Length; j++) p.Add(new[] { seg.Rho[j], seg.Theta[j] });
+                    int start = 0;
+                    if (pts.Count > 0 && Math.Abs(pts[pts.Count - 1][0] - p[0][0]) < 1e-9 && Math.Abs(pts[pts.Count - 1][1] - p[0][1]) < 1e-9) start = 1;
+                    for (int j = start; j < p.Count; j++) pts.Add(p[j]);
+                }
+            return pts;
         }
 
         private Segment Flank(double[] radii, double tc, int sgn, bool reversed)
@@ -430,7 +612,7 @@ namespace GearSet
     public class GearModel
     {
         public Design Design;
-        public double M, FaceWidth, Gap, Rim, Backlash, ShaftD, PinD, FitClearance, HoleD;
+        public double M, FaceWidth, Gap, Rim, Backlash, ShaftD, PinD, FitClearance, HoleD, FilletMod;
         public int Holes;
         public string Name;
 
@@ -441,11 +623,11 @@ namespace GearSet
         public List<string> Notes = new List<string>();
 
         public static GearModel Create(Design d, double module, double faceWidth, double gap, double backlash,
-                                       double shaftD, double pinD, double rimModules, int holes, string name)
+                                       double shaftD, double pinD, double rimModules, int holes, string name, double filletModules = 0.30)
         {
             var g = new GearModel
             {
-                Design = d, M = module, Backlash = backlash, Holes = holes, Name = name,
+                Design = d, M = module, Backlash = backlash, Holes = holes, Name = name, FilletMod = filletModules,
                 FaceWidth = faceWidth > 0 ? faceWidth : Math.Round(10 * module, 3),
                 Gap = gap > 0 ? gap : Math.Round(Math.Max(2.0, 1.5 * module), 3),
                 ShaftD = shaftD > 0 ? shaftD : Math.Round(0.5 * module * d.Zs, 2),
@@ -489,13 +671,13 @@ namespace GearSet
             bool teTooth = ToothAt(d.Zr2, phTe, Math.PI);                 // thin ring external at -x
             double phF = PhaseFor(d.Zf, Math.PI, !teTooth);
             double phO = PhaseFor(d.Zo, Math.PI, !teTooth);
-            double j = Backlash / 2;
-            Sun = new GearGeom("Sun", false, m, d.Zs, a, 0, phS, j);
-            Planet = new GearGeom("Planet", false, m, d.Zp, a, 0, phP, j);
-            ThinInt = new GearGeom("ThinRing internal", true, m, d.Zr1, a, 0, phTi, j);
-            ThinExt = new GearGeom("ThinRing external", false, m, d.Zr2, a, 0, phTe, j);
-            Fixed = new GearGeom("FixedRing", true, m, d.Zf, a, d.XFixed, phF, j);
-            Output = new GearGeom("OutputRing", true, m, d.Zo, a, d.XOutput, phO, j);
+            double j = Backlash / 2, rf = FilletMod * m;
+            Sun = new GearGeom("Sun", false, m, d.Zs, a, 0, phS, j, rf);
+            Planet = new GearGeom("Planet", false, m, d.Zp, a, 0, phP, j, rf);
+            ThinInt = new GearGeom("ThinRing internal", true, m, d.Zr1, a, 0, phTi, j, rf);
+            ThinExt = new GearGeom("ThinRing external", false, m, d.Zr2, a, 0, phTe, j, rf);
+            Fixed = new GearGeom("FixedRing", true, m, d.Zf, a, d.XFixed, phF, j, rf);
+            Output = new GearGeom("OutputRing", true, m, d.Zo, a, d.XOutput, phO, j, rf);
 
             RingOuterR = Math.Max(Fixed.Rf, Output.Rf) + Rim;
             JournalR = ThinInt.Rf - FitClearance;
@@ -578,6 +760,7 @@ namespace GearSet
                           + ", thin/fixed " + cr["thin ring/fixed ring"].ToString("0.00", CultureInfo.InvariantCulture)
                           + ", thin/output " + cr["thin ring/output ring"].ToString("0.00", CultureInfo.InvariantCulture) + ")");
             if (Backlash > 0) sb.AppendLine("Backlash            " + Backlash.ToString("0.###", CultureInfo.InvariantCulture) + " mm per mesh");
+            sb.AppendLine("Root fillets        " + (Sun.Fil == null ? "none" : "r = " + (FilletMod * M).ToString("0.###", CultureInfo.InvariantCulture) + " mm (" + FilletMod.ToString("0.##", CultureInfo.InvariantCulture) + " x module), reduced where a space is too narrow"));
             foreach (string n in Notes) sb.AppendLine("WARNING  " + n);
             return sb.ToString();
         }

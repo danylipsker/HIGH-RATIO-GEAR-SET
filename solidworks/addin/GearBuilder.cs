@@ -407,6 +407,15 @@ namespace GearSet
                                 (cxMm + seg.Rho[1] * Math.Cos(seg.Theta[1])) / 1000, (cyMm + seg.Rho[1] * Math.Sin(seg.Theta[1])) / 1000, 0,
                                 _arcCcw);
                             break;
+                        case SegKind.Fillet:
+                            {
+                                int last = seg.Rho.Length - 1;
+                                sm.CreateArc((cxMm + seg.Cx) / 1000, (cyMm + seg.Cy) / 1000, 0,
+                                    (cxMm + seg.Rho[0] * Math.Cos(seg.Theta[0])) / 1000, (cyMm + seg.Rho[0] * Math.Sin(seg.Theta[0])) / 1000, 0,
+                                    (cxMm + seg.Rho[last] * Math.Cos(seg.Theta[last])) / 1000, (cyMm + seg.Rho[last] * Math.Sin(seg.Theta[last])) / 1000, 0,
+                                    (short)(seg.Ccw ? _arcCcw : -_arcCcw));
+                            }
+                            break;
                         case SegKind.Line:
                             sm.CreateLine(
                                 (cxMm + seg.Rho[0] * Math.Cos(seg.Theta[0])) / 1000, (cyMm + seg.Rho[0] * Math.Sin(seg.Theta[0])) / 1000, 0,

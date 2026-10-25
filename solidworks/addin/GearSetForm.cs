@@ -29,6 +29,7 @@ namespace GearSet
         private readonly TextBox _faceWidth = new TextBox { Width = 60 };
         private readonly TextBox _backlash = new TextBox { Width = 60, Text = "0" };
         private readonly TextBox _awMax = new TextBox { Width = 45, Text = "31" };
+        private readonly TextBox _fillet = new TextBox { Width = 45, Text = "0.3" };
         private readonly CheckBox _mates = new CheckBox { Text = "add mates so the assembly animates (drag the sun)", AutoSize = true, Checked = true };
         private readonly CheckBox _nearest = new CheckBox { Text = "if no exact set exists, show the nearest ratios", AutoSize = true, Checked = true };
         private readonly Button _find = new Button { Text = "Find solutions", Width = 120, Height = 28 };
@@ -105,7 +106,9 @@ namespace GearSet
             row2.Controls.Add(_backlash);
             row2.Controls.Add(Plain("mm     max α_w"));
             row2.Controls.Add(_awMax);
-            row2.Controls.Add(Plain("deg   "));
+            row2.Controls.Add(Plain("deg   root fillet"));
+            row2.Controls.Add(_fillet);
+            row2.Controls.Add(Plain("x module   "));
             row2.Controls.Add(_nearest);
             rootPanel.Controls.Add(row2);
 
@@ -155,6 +158,7 @@ namespace GearSet
             _tips.SetToolTip(_maxOd, "Hide solutions whose ring outer diameter exceeds this at the given module");
             _tips.SetToolTip(_awMax, "Design rule: working pressure angle of the profile-shifted ring mesh (31 deg default, up to ~34 possible)");
             _tips.SetToolTip(_backlash, "Circumferential backlash per mesh; teeth are thinned by half of it. 0 = theoretical, touching flanks");
+            _tips.SetToolTip(_fillet, "Root fillet radius as a multiple of the module (0.3 default, 0 = sharp). 0.38 is the ISO rack value but grazes the ring tips without tip relief.");
             _tips.SetToolTip(_list, "Double-click a row to build it");
             _tips.SetToolTip(_set, "Six tooth counts build exactly this set, whatever the ratio box says (e.g. 16 32 115 123 158 155). Clear it to search by ratio.");
             _tips.SetToolTip(_mates, "Coincident / concentric mates for the positions and gear mates with the exact speed ratios to the sun; one degree of freedom left");
@@ -282,7 +286,7 @@ namespace GearSet
 
         private GearModel QuickModel(Design d, double m)
         {
-            return GearModel.Create(d, m, Num(_faceWidth) ?? 0, 0, Num(_backlash) ?? 0, 0, 0, 5.0, 6, SetName(d, m));
+            return GearModel.Create(d, m, Num(_faceWidth) ?? 0, 0, Num(_backlash) ?? 0, 0, 0, 5.0, 6, SetName(d, m), Num(_fillet) ?? 0.3);
         }
 
         private string SetName(Design d, double m)

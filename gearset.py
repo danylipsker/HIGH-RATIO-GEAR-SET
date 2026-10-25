@@ -263,6 +263,7 @@ class GearGeom:
     x: float
     phase: float         # angle of the first tooth centre
     thinning: float = 0.0  # tooth thickness reduction at the reference circle (mm) = half the mesh backlash
+    fillet: float = 0.0  # requested root fillet radius (mm); 0 = sharp root corner
     r: float = 0.0       # reference radius
     rb: float = 0.0      # base radius
     ra: float = 0.0      # tip radius (internal: inner)
@@ -283,6 +284,79 @@ class GearGeom:
             self.rf = self.r + m * (ha + c + x)
             s = m * (math.pi / 2 - 2 * x * math.tan(a))          # internal tooth thickness
         self.half_ref = (s - self.thinning) / (2 * self.r)
+        self.fil = self._compute_fillet()
+
+    # ---- root fillet -------------------------------------------------------------------------
+    def _flank_point(self, rho: float):
+        """Leading flank point (tooth centre at angle 0), Cartesian."""
+        t = -self.half_angle(rho)
+        return (rho * math.cos(t), rho * math.sin(t))
+
+    def _compute_fillet(self):
+        """Circular fillet tangent to the root circle and to the leading flank (or its radial root line).
+        Returns None or dict(rho, c=(cx,cy), t2=(r,theta) on the root circle, t1=(r,theta) on the flank,
+        ccw=True if the arc from t2 to t1 runs counter-clockwise about c, pts=[(rho,theta)...] t2->t1)."""
+        if self.fillet <= 0:
+            return None
+        rf, rb, ra, ext = self.rf, self.rb, self.ra, self.kind == "external"
+        pitch = TAU / self.Z
+        if ext and rb > rf + 1e-9:
+            th0 = -self.half_angle(rb)                     # radial line from rf to rb at this angle
+            p0 = (rf * math.cos(th0), rf * math.sin(th0))
+            d = (math.cos(th0), math.sin(th0))
+        else:
+            th0 = -self.half_angle(rf)
+            p0 = (rf * math.cos(th0), rf * math.sin(th0))
+            eps = 1e-4 * self.m
+            q = self._flank_point(rf + eps) if ext else self._flank_point(rf - eps)
+            d = (q[0] - p0[0], q[1] - p0[1])
+            ln = math.hypot(*d); d = (d[0] / ln, d[1] / ln)
+        e_space = (math.sin(th0), -math.cos(th0))         # towards the tooth space (decreasing angle)
+        n = (-d[1], d[0])
+        if n[0] * e_space[0] + n[1] * e_space[1] < 0:
+            n = (-n[0], -n[1])
+        rho = self.fillet
+        for _ in range(40):
+            if rho < 0.02 * self.m:
+                return None
+            R = rf + rho if ext else rf - rho
+            qx, qy = p0[0] + rho * n[0], p0[1] + rho * n[1]
+            b = qx * d[0] + qy * d[1]
+            c = qx * qx + qy * qy - R * R
+            disc = b * b - c
+            ok = disc >= 0
+            if ok:
+                roots = [-b - math.sqrt(disc), -b + math.sqrt(disc)]
+                roots = [x for x in roots if x >= -1e-12]
+                ok = bool(roots)
+            if ok:
+                sdist = min(roots)
+                cx, cy = qx + sdist * d[0], qy + sdist * d[1]
+                t1 = (p0[0] + sdist * d[0], p0[1] + sdist * d[1])
+                cl = math.hypot(cx, cy)
+                t2 = (cx / cl * rf, cy / cl * rf)
+                r1 = math.hypot(*t1)
+                th2 = math.atan2(t2[1], t2[0])
+                if ext:
+                    ok = (r1 <= rb + 1e-9 if rb > rf + 1e-9 else r1 <= ra - 0.5 * self.m) and th2 > -pitch / 2 + 1e-6
+                else:
+                    ok = r1 >= ra + 0.3 * self.m and th2 > -pitch / 2 + 1e-6
+            if ok:
+                a2 = math.atan2(t2[1] - cy, t2[0] - cx)
+                a1 = math.atan2(t1[1] - cy, t1[0] - cx)
+                da = (a1 - a2 + math.pi) % TAU - math.pi             # signed sweep, |da| <= pi
+                npts = 7
+                pts = []
+                for k in range(npts):
+                    a = a2 + da * k / (npts - 1)
+                    x, y = cx + rho * math.cos(a), cy + rho * math.sin(a)
+                    pts.append((math.hypot(x, y), math.atan2(y, x)))
+                pts[0] = (rf, th2)
+                pts[-1] = (r1, math.atan2(t1[1], t1[0]))
+                return {"rho": rho, "c": (cx, cy), "t2": pts[0], "t1": pts[-1], "ccw": da > 0, "pts": pts,
+                        "a_start": a2, "a_end": a1}
+            rho *= 0.8
+        return None
 
     def half_angle(self, rho: float) -> float:
         """Half tooth angle at radius rho (involute part)."""
@@ -294,38 +368,85 @@ class GearGeom:
     def flank_radii(self, n: int) -> List[float]:
         if self.kind == "external":
             lo, hi = max(self.rb, self.rf), self.ra
+            if self.fil and self.rb <= self.rf + 1e-9:
+                lo = self.fil["t1"][0]                       # flank starts where the fillet ends
         else:
             lo, hi = max(self.rb, self.ra), self.rf
+            if self.fil:
+                hi = self.fil["t1"][0]
         # denser near the base circle where curvature is highest
         return [lo + (hi - lo) * (k / (n - 1)) ** 1.3 for k in range(n)]
 
     def tooth_segments(self, k: int, n_flank: int = 12):
         """Segments of tooth k going counter-clockwise.
-        Returns list of ('line'|'arc'|'spline', [(rho, theta), ...]) in polar coords."""
+        Returns list of (kind, points[, meta]) with kind in 'line' | 'arc' (about the gear centre) |
+        'spline' | 'fillet' (arc about meta centre); points are polar (rho, theta) about the gear centre."""
         tc = self.phase + k * TAU / self.Z
         pitch = TAU / self.Z
         radii = self.flank_radii(n_flank)
+        fil = self.fil
         segs = []
+
+        def rot(pts, mirror=False):
+            if mirror:
+                return [(r, tc - t) for r, t in reversed(pts)]
+            return [(r, tc + t) for r, t in pts]
+
+        def fillet_seg(mirror):
+            # meta: centre (gear coords, rotated), radius, ccw flag of the traversal t2->t1 (mirrored: t1->t2)
+            cx, cy = fil["c"]
+            if mirror:
+                cxr, cyr = cx * math.cos(tc) + cy * math.sin(tc), cx * math.sin(tc) - cy * math.cos(tc)
+                ccw = not fil["ccw"]
+            else:
+                cxr, cyr = cx * math.cos(tc) - cy * math.sin(tc), cx * math.sin(tc) + cy * math.cos(tc)
+                ccw = fil["ccw"]
+            return ("fillet", rot(fil["pts"], mirror), {"c": (cxr, cyr), "r": fil["rho"], "ccw": ccw})
+
         if self.kind == "external":
             h0 = self.half_angle(radii[0])
-            h_prev = self.half_angle(radii[0])          # previous tooth has the same root angle
-            # root arc from previous tooth (tc - pitch + h0) to this tooth (tc - h0)
-            segs.append(("arc", [(self.rf, tc - pitch + h_prev), (self.rf, tc - h0)]))
-            if self.rb > self.rf + 1e-9:
-                segs.append(("line", [(self.rf, tc - h0), (self.rb, tc - h0)]))
-            segs.append(("spline", [(rho, tc - self.half_angle(rho)) for rho in radii]))
             ha_ = self.half_angle(self.ra)
+            root_edge = -fil["t2"][1] if fil else h0        # half angle of the root land ends
+            segs.append(("arc", [(self.rf, tc - pitch + root_edge), (self.rf, tc - root_edge)]))
+            if fil:
+                segs.append(fillet_seg(False))
+                r1, th1 = fil["t1"]
+                if self.rb > self.rf + 1e-9 and self.rb > r1 + 1e-9:
+                    segs.append(("line", [(r1, tc + th1), (self.rb, tc - h0)]))
+                lead = [(r1, tc + th1)] + [(rho, tc - self.half_angle(rho)) for rho in radii[1:]]
+            else:
+                if self.rb > self.rf + 1e-9:
+                    segs.append(("line", [(self.rf, tc - h0), (self.rb, tc - h0)]))
+                lead = [(rho, tc - self.half_angle(rho)) for rho in radii]
+            segs.append(("spline", lead))
             segs.append(("arc", [(self.ra, tc - ha_), (self.ra, tc + ha_)]))
-            segs.append(("spline", [(rho, tc + self.half_angle(rho)) for rho in reversed(radii)]))
-            if self.rb > self.rf + 1e-9:
-                segs.append(("line", [(self.rb, tc + h0), (self.rf, tc + h0)]))
+            trail = [(r, tc - (t - tc)) for r, t in reversed(lead)]
+            segs.append(("spline", trail))
+            if fil:
+                r1, th1 = fil["t1"]
+                if self.rb > self.rf + 1e-9 and self.rb > r1 + 1e-9:
+                    segs.append(("line", [(self.rb, tc + h0), (r1, tc - th1)]))
+                segs.append(fillet_seg(True))
+            else:
+                if self.rb > self.rf + 1e-9:
+                    segs.append(("line", [(self.rb, tc + h0), (self.rf, tc + h0)]))
         else:
             hf = self.half_angle(self.rf)
             ha_ = self.half_angle(self.ra)
-            segs.append(("arc", [(self.rf, tc - pitch + hf), (self.rf, tc - hf)]))
-            segs.append(("spline", [(rho, tc - self.half_angle(rho)) for rho in reversed(radii)]))
+            root_edge = -fil["t2"][1] if fil else hf
+            segs.append(("arc", [(self.rf, tc - pitch + root_edge), (self.rf, tc - root_edge)]))
+            if fil:
+                segs.append(fillet_seg(False))
+                r1, th1 = fil["t1"]
+                lead = [(r1, tc + th1)] + [(rho, tc - self.half_angle(rho)) for rho in reversed(radii[:-1])]
+            else:
+                lead = [(rho, tc - self.half_angle(rho)) for rho in reversed(radii)]
+            segs.append(("spline", lead))
             segs.append(("arc", [(self.ra, tc - ha_), (self.ra, tc + ha_)]))
-            segs.append(("spline", [(rho, tc + self.half_angle(rho)) for rho in radii]))
+            trail = [(r, tc - (t - tc)) for r, t in reversed(lead)]
+            segs.append(("spline", trail))
+            if fil:
+                segs.append(fillet_seg(True))
         return segs
 
     def check(self) -> List[str]:
@@ -348,7 +469,8 @@ class GearGeom:
         """Closed outline as polar points (rho, theta), theta increasing."""
         pts: List[Tuple[float, float]] = []
         for k in range(self.Z):
-            for kind, p in self.tooth_segments(k, n_flank):
+            for seg_ in self.tooth_segments(k, n_flank):
+                kind, p = seg_[0], seg_[1]
                 if kind == "arc":
                     (r0, t0), (r1, t1) = p
                     n = max(2, int(math.ceil(deg(t1 - t0) / arc_step_deg)) + 1)
@@ -401,6 +523,7 @@ class Model:
     pin_d: float               # planet pin
     fit_clearance: float       # radial clearance pin/bore, journal/thin ring
     backlash: float = 0.0      # circumferential backlash per mesh, mm
+    fillet_mod: float = 0.30   # root fillet radius in modules (0 = none); 0.38 (ISO rack) grazes ring tips without tip relief
     name: str = "gearset"
     gears: dict = field(default_factory=dict)
     layout: dict = field(default_factory=dict)
@@ -424,13 +547,14 @@ class Model:
         ph_f = phase_for(Zf, math.pi, complement(atpi))
         ph_o = phase_for(Zo, math.pi, complement(atpi))
         j = self.backlash / 2
+        rf_ = self.fillet_mod * m
         self.gears = {
-            "sun": GearGeom("sun", "external", m, Zs, a, 0.0, ph_s, j),
-            "planet": GearGeom("planet", "external", m, Zp, a, 0.0, ph_p, j),
-            "thin_ring_internal": GearGeom("thin_ring_internal", "internal", m, Zr1, a, 0.0, ph_t_int, j),
-            "thin_ring_external": GearGeom("thin_ring_external", "external", m, Zr2, a, 0.0, ph_t_ext, j),
-            "fixed_ring": GearGeom("fixed_ring", "internal", m, Zf, a, d.x_fixed, ph_f, j),
-            "output_ring": GearGeom("output_ring", "internal", m, Zo, a, d.x_output, ph_o, j),
+            "sun": GearGeom("sun", "external", m, Zs, a, 0.0, ph_s, j, rf_),
+            "planet": GearGeom("planet", "external", m, Zp, a, 0.0, ph_p, j, rf_),
+            "thin_ring_internal": GearGeom("thin_ring_internal", "internal", m, Zr1, a, 0.0, ph_t_int, j, rf_),
+            "thin_ring_external": GearGeom("thin_ring_external", "external", m, Zr2, a, 0.0, ph_t_ext, j, rf_),
+            "fixed_ring": GearGeom("fixed_ring", "internal", m, Zf, a, d.x_fixed, ph_f, j, rf_),
+            "output_ring": GearGeom("output_ring", "internal", m, Zo, a, d.x_output, ph_o, j, rf_),
         }
         g = self.gears
         b, gap = self.face_width, self.gap
@@ -609,9 +733,19 @@ def write_dxf(path: str, outlines: List[Tuple[GearGeom, Tuple[float, float]]], c
 
     for gg, (cx, cy) in outlines:
         for k in range(gg.Z):
-            for kind, p in gg.tooth_segments(k):
+            for seg_ in gg.tooth_segments(k):
+                kind, p = seg_[0], seg_[1]
                 if kind == "arc":
                     arc(cx, cy, p[0][0], p[0][1], p[1][1], gg.name)
+                elif kind == "fillet":
+                    meta = seg_[2]
+                    fcx, fcy = cx + meta["c"][0], cy + meta["c"][1]
+                    (x0, y0), (x1, y1) = polar_to_xy([p[0], p[-1]], cx, cy)
+                    a0, a1 = math.atan2(y0 - fcy, x0 - fcx), math.atan2(y1 - fcy, x1 - fcx)
+                    if meta["ccw"]:
+                        arc(fcx, fcy, meta["r"], a0, a1, gg.name)
+                    else:
+                        arc(fcx, fcy, meta["r"], a1, a0, gg.name)
                 else:
                     xy = polar_to_xy(p, cx, cy)
                     for (x1, y1), (x2, y2) in zip(xy, xy[1:]):
@@ -773,7 +907,8 @@ def write_equations(path: str, model: Model):
              '"RingOuterRadius" = %.6f' % lay["ring_outer_r"],
              '"JournalRadius" = %.6f' % lay["journal_r"],
              '"ShaftDiameter" = %g' % model.shaft_d, '"PinDiameter" = %g' % model.pin_d,
-             '"FitClearance" = %g' % model.fit_clearance, '"Backlash" = %g' % model.backlash]
+             '"FitClearance" = %g' % model.fit_clearance, '"Backlash" = %g' % model.backlash,
+             '"RootFilletModules" = %g' % model.fillet_mod]
     for k, gg in g.items():
         lines.append('"Phase_%s_deg" = %.6f' % (k, deg(gg.phase)))
         lines.append('"TipRadius_%s" = %.6f' % (k, gg.ra))
@@ -836,10 +971,11 @@ def write_report(path: str, model: Model, candidates, target: Fraction, args_tex
         L.append(f"formula   : {float(i): .9f}   difference {abs(kin['ratio'] - float(i)):.2e}")
         L.append("```")
     L.append("## Geometry of every toothed outline (mm)\n")
-    L.append("| gear | type | Z | x | reference r | base rb | tip ra | root rf | first tooth centre (deg) |")
-    L.append("|---|---|---|---|---|---|---|---|---|")
+    L.append("| gear | type | Z | x | reference r | base rb | tip ra | root rf | root fillet | first tooth centre (deg) |")
+    L.append("|---|---|---|---|---|---|---|---|---|---|")
     for k, gg in g.items():
-        L.append(f"| {k} | {gg.kind} | {gg.Z} | {gg.x:+.4f} | {gg.r:.4f} | {gg.rb:.4f} | {gg.ra:.4f} | {gg.rf:.4f} | {deg(gg.phase):.4f} |")
+        fr = f"{gg.fil['rho']:.3f}" if gg.fil else "none"
+        L.append(f"| {k} | {gg.kind} | {gg.Z} | {gg.x:+.4f} | {gg.r:.4f} | {gg.rb:.4f} | {gg.ra:.4f} | {gg.rf:.4f} | {fr} | {deg(gg.phase):.4f} |")
     L.append("")
     L.append("Positions in the assembly (mm): sun at (0,0), planet at (%.4f, 0), thin ring centre at (%.4f, 0), "
              "fixed and output rings concentric with the sun. The sun/planet/thin-ring meshes lie on the +x axis, "
@@ -972,6 +1108,8 @@ def main(argv=None):
                     help="Windows path of this folder, written into the macro")
     ap.add_argument("--backlash", type=float, default=0.0,
                     help="circumferential backlash per mesh in mm (every tooth thinned by half of it); 0 = theoretical")
+    ap.add_argument("--fillet", type=float, default=0.30,
+                    help="root fillet radius in modules (0 = sharp root); reduced automatically where the space is too narrow")
     ap.add_argument("--no-stl", action="store_true")
     ap.add_argument("--no-check", action="store_true", help="skip the rolling interference check")
     args = ap.parse_args(argv)
@@ -1021,7 +1159,7 @@ def main(argv=None):
     os.makedirs(os.path.join(out, "stl"), exist_ok=True)
 
     model = Model(des, m, b, gap, rim, args.holes, round(0.4 * rim, 2), shaft_d, pin_d,
-                  fit_clearance=round(0.05 * m + 0.05, 3), backlash=args.backlash, name=name).build()
+                  fit_clearance=round(0.05 * m + 0.05, 3), backlash=args.backlash, fillet_mod=args.fillet, name=name).build()
     model.notes = mnotes + model.notes
     if not args.no_check:
         model.mesh_check = verify_meshing(model)
