@@ -4,3 +4,6 @@ __pycache__/
 # *.SLDPRT
 # *.SLDASM
 ~$*
+# .NET build output of the SOLIDWORKS add-in and CLI (install.ps1 rebuilds them)
+solidworks/**/bin/
+solidworks/**/obj/

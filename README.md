@@ -10,7 +10,10 @@ HIGH-RATIO-GEAR-SET/
 ├── build_all.py                        regenerates every committed set below (exact command line of each)
 ├── setup_local.ps1                     copies this folder to C:\Users\Dany\source\claudecode\HIGH-RATIO-GEAR-SET, checks Python
 ├── CLAUDE.md                           hand-off for a local Claude Code session with SolidWorks: test checklist, macro risk points
-├── solidworks/BuildGearSet.bas.template VBA macro template (parameter block is filled by gearset.py)
+├── solidworks/addin/                   **SOLIDWORKS add-in** (C#, 2020+): "Gear Set" tab -> dialog: module, ratio, pick a solution,
+│                                       overall dimensions, Build -> .SLDPRT + .SLDASM only.  install.ps1 builds and registers it
+├── solidworks/swcli/                   GearSetCli.exe: the same solver / builder from the command line (solve, test-dialog, build)
+├── solidworks/BuildGearSet.bas.template VBA macro template (parameter block is filled by gearset.py) - the no-build alternative
 ├── output/ratio-500_m1/                the default 1:500 set, module 1 (sun 24)
 ├── output/ratio-500_m1_sun16/          the same for the 16-tooth sun (16/18/96/123/167/164), same file set
 ├── output/ratio-500_m1_planet32/       the only exact 1:500 set with a 32-tooth planet (20/32/135/153/204/200)
@@ -80,7 +83,42 @@ Thin ring wall (between the two tooth roots) of these four: 3.5 mm, 11 mm, 6.5 m
 
 All exact candidates are listed at the end of every `design_report.md`; build any of them with `--set`.
 
-## Quick start (SolidWorks)
+## SOLIDWORKS add-in (recommended)
+
+Same construction as the Fastener Catalog add-in of the FASTENERS repository: C#, .NET Framework 4.8,
+compiled against the interop assemblies of the installed SOLIDWORKS (2020 or newer), registered with RegAsm.
+
+```powershell
+cd C:\Users\Dany\source\claudecode\HIGH-RATIO-GEAR-SET\solidworks\addin
+.\install.ps1              # detects SOLIDWORKS, compiles add-in + GearSetCli.exe, registers (one UAC prompt)
+.\install.ps1 -Unregister
+```
+
+Needs Visual Studio Build Tools or the .NET SDK (the same as the fastener add-in). Then start SOLIDWORKS:
+a **Gear Set** tab appears with *Create gear set...*:
+
+1. **Module** (mm) and **gear ratio** (1 : N, decimals or fractions accepted), optionally sun / planet
+   tooth counts, a maximum ring outer diameter, face width, backlash.
+2. **Find solutions** lists every tooth set that gives the ratio exactly (best first: working pressure
+   angle, ring tooth difference, undercut, closeness to 16/32/99/100, size). When none exists and
+   "nearest" is ticked, the closest ratios are listed and marked.
+3. Picking a row shows the **overall dimensions**: ring outer diameter, gear pack length, overall length
+   with shaft stubs, shaft and pin diameters, centre distance, eccentricity, thin ring wall, profile
+   shift and contact ratios, with warnings if a rule is violated.
+4. **Build SOLIDWORKS files** writes `Sun`, `Planet`, `ThinRing`, `Carrier`, `FixedRing`, `OutputRing`
+   `.SLDPRT` and `GearSet.SLDASM` into the chosen folder (default `output\<set name>`), nothing else.
+   The teeth are true involutes with the profile shift, already phased so the assembly meshes;
+   custom properties carry teeth, module, ratio and the main dimensions. The assembly stays open.
+
+Command line, same code: `swcli\bin\Release\GearSetCli.exe solve -ratio 500 -module 1` (table, no
+SOLIDWORKS), `GearSetCli.exe test-dialog` (dialog alone), `GearSetCli.exe build -ratio 500 -module 1 -pick 1`
+(builds through the running SOLIDWORKS, or a hidden new one with `-new`).
+
+Diagnostics: `%TEMP%\GearSetAddin.log`. The add-in was written without a SOLIDWORKS seat at hand and
+compiles against the same API calls the fastener add-in uses, plus `FeatureExtrusion3`, `CreateSpline2`
+and `CreateArc` for the teeth; `CLAUDE.md` lists the places to look first if a call misbehaves.
+
+## Quick start (VBA macro, no build tools)
 
 1. Put this folder at `C:\Users\Dany\source\claudecode\HIGH-RATIO-GEAR-SET` (`setup_local.ps1` copies it
    there from the repository clone). The macros write their parts next to themselves:

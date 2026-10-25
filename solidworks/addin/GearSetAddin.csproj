@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Gear Set add-in for SOLIDWORKS 2020 and newer.
+
+    The SOLIDWORKS version to compile against is chosen with the SwVersion
+    property (default 2020 = works in every newer release too):
+
+        msbuild GearSetAddin.csproj /restore /p:Configuration=Release /p:SwVersion=2022
+
+    install.ps1 does this for you and registers the add-in.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Library</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>8.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>GearSetAddin</AssemblyName>
+    <RootNamespace>GearSet</RootNamespace>
+    <AssemblyTitle>Gear Set for SOLIDWORKS</AssemblyTitle>
+    <Product>High-ratio gear set</Product>
+    <Version>1.0.0</Version>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64;AnyCPU</Platforms>
+    <RegisterForComInterop>false</RegisterForComInterop>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <Deterministic>true</Deterministic>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>CS1591;MSB3270</NoWarn>
+    <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+  </PropertyGroup>
+
+  <!-- SOLIDWORKS interop location: from the registry of the chosen version, or SwInstallDir given explicitly -->
+  <PropertyGroup>
+    <SwVersion Condition="'$(SwVersion)' == ''">2020</SwVersion>
+    <SwInstallDir Condition="'$(SwInstallDir)' == ''">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\SolidWorks\SOLIDWORKS $(SwVersion)\Setup', 'SolidWorks Folder', null, RegistryView.Registry64))</SwInstallDir>
+    <SwInstallDir Condition="'$(SwInstallDir)' != '' and !HasTrailingSlash('$(SwInstallDir)')">$(SwInstallDir)\</SwInstallDir>
+    <SwInteropDir>$(SwInstallDir)api\redist\</SwInteropDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>$(SwInteropDir)SolidWorks.Interop.sldworks.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>$(SwInteropDir)SolidWorks.Interop.swconst.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swpublished">
+      <HintPath>$(SwInteropDir)SolidWorks.Interop.swpublished.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="icons\*.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="GearSetInfo" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(SwInteropDir)SolidWorks.Interop.sldworks.dll')"
+           Text="SOLIDWORKS $(SwVersion) interop assemblies not found in '$(SwInteropDir)'. Install that version or pass /p:SwVersion=20xx (or /p:SwInstallDir=...)." />
+    <Message Importance="high" Text="Gear Set add-in: compiling against SOLIDWORKS $(SwVersion) ($(SwInteropDir))" />
+  </Target>
+
+</Project>

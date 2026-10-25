@@ -6,6 +6,15 @@ parts has never been executed. Your first job here is to run it, fix whatever So
 rejects, and confirm the assembly meshes. Dany is the user; SolidWorks 2020 is installed locally.
 
 ## Layout
+- `solidworks/addin/` - the **SOLIDWORKS add-in** (C#): `AddIn.cs` (ISwAddin, "Gear Set" tab), `GearSetForm.cs`
+  (dialog), `GearMath.cs` (solver + involutes, port of gearset.py, no SOLIDWORKS dependency),
+  `GearBuilder.cs` (parts + assembly through the API), `install.ps1` (build with MSBuild/dotnet, RegAsm).
+  `solidworks/swcli/GearSetCli.exe` shares the same files: `solve` and `test-dialog` need no SOLIDWORKS,
+  `build` drives it. Build + register: `solidworks\addin\install.ps1`. Log: `%TEMP%\GearSetAddin.log`.
+  The add-in has never been compiled or run (no SOLIDWORKS / .NET here): the first job is
+  `install.ps1 -BuildOnly`, fix compile errors, then `GearSetCli.exe solve -ratio 500` must print the same
+  tooth sets as `python gearset.py --ratio 500 --list 12` (24/20/102/114/152/150 first), then
+  `GearSetCli.exe build -ratio 500 -module 1 -show` and the checklist below on the result.
 - `gearset.py` - generator (solver, involutes, DXF/STL/SVG/report, fills the macro template). Python 3,
   stdlib; numpy + Pillow optional (rolling check, STL, PNG).
 - `solidworks/BuildGearSet.bas.template` - the macro. **Edit the template, not the generated copies**,
@@ -39,7 +48,7 @@ Expected: a scratch part is created and closed (direction calibration), then six
 5. Open `dxf/layout_sectionA.dxf` in a sketch and compare with the parts if anything looks off - the
    DXF is the reference geometry; the macro is supposed to reproduce it.
 
-## Known risk points in the macro (check these first if it fails)
+## Known risk points in the add-in builder (GearBuilder.cs) and the macro (check these first)
 - `Calibrate`: uses `ISketchArc::GetNormalVector`, `IPartDoc::GetBodies2`, `IBody2::GetBodyBox` to
   learn the sign conventions of `FeatureExtrusion3` (Dir flag, StartOffset flip) and `CreateArc`
   direction. If calibration itself fails, hard-code `gDirFlip`, `gOffFlip`, `gArcCCW` after one manual
@@ -54,7 +63,11 @@ Expected: a scratch part is created and closed (direction calibration), then six
 - `AddComponent5` expects the part documents to be open - they are, since the macro keeps them open
   after saving. If it returns Nothing, open the parts with `OpenDoc6` first.
 - `SaveAs` (IModelDocExtension) with 6 args - if deprecated on your build, switch to `SaveAs3`.
-- Equations/custom properties are added under `On Error Resume Next`; they are cosmetic.
+- Equations/custom properties are added under `On Error Resume Next` / try-catch; they are cosmetic.
+- C# specifics: `(Feature)sketch` and `(SketchArc)segment` are COM QueryInterface casts; `GetBodies2`,
+  `GetBodyBox`, `GetNormalVector`, `FirstFeature`, `GetNextFeature` return `object` and are cast.
+  If `FeatureExtrusion3` does not exist in the referenced interop, the project is compiling against a
+  pre-2014 version: check `SwVersion` / `SwInstallDir` in the csproj.
 
 ## Conventions
 - API lengths in metres, parameters in mm/degrees; all parts share the sun axis as Z, Front Plane as

@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    GearSetCli.exe - command line companion of the Gear Set add-in (same code):
+      GearSetCli solve -ratio 500 -module 1 [-sun 16] [-planet 32] [-nearest]     list the tooth sets, no SOLIDWORKS needed
+      GearSetCli test-dialog                                                      show the dialog alone, no SOLIDWORKS needed
+      GearSetCli build -ratio 500 -module 1 [-pick 1] [-out <folder>] [-sw 2020] [-new] [-show]
+    Built by addin\install.ps1 together with the add-in.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>8.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>GearSetCli</AssemblyName>
+    <RootNamespace>GearSet.Cli</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64;AnyCPU</Platforms>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <Deterministic>true</Deterministic>
+    <NoWarn>CS1591;MSB3270</NoWarn>
+    <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <SwVersion Condition="'$(SwVersion)' == ''">2020</SwVersion>
+    <SwInstallDir Condition="'$(SwInstallDir)' == ''">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\SolidWorks\SOLIDWORKS $(SwVersion)\Setup', 'SolidWorks Folder', null, RegistryView.Registry64))</SwInstallDir>
+    <SwInstallDir Condition="'$(SwInstallDir)' != '' and !HasTrailingSlash('$(SwInstallDir)')">$(SwInstallDir)\</SwInstallDir>
+    <SwInteropDir>$(SwInstallDir)api\redist\</SwInteropDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>$(SwInteropDir)SolidWorks.Interop.sldworks.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>$(SwInteropDir)SolidWorks.Interop.swconst.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swpublished">
+      <HintPath>$(SwInteropDir)SolidWorks.Interop.swpublished.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- shared with the add-in -->
+    <Compile Include="..\addin\GearMath.cs" Link="GearMath.cs" />
+    <Compile Include="..\addin\GearBuilder.cs" Link="GearBuilder.cs" />
+    <Compile Include="..\addin\GearSetForm.cs" Link="GearSetForm.cs" />
+  </ItemGroup>
+
+</Project>
