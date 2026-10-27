@@ -329,22 +329,24 @@ namespace GearSet
         public double R, Rb, Ra, Rf, HalfRef;
         public FilletGeom Fil;              // null = sharp root corner
 
-        public GearGeom(string name, bool isInternal, double m, int z, double alphaRad, double x, double phase, double thinning, double filletMm = 0.0)
+        public double TipShorten;           // tip taken back (mm) to clear the mate's base circle (involute interference)
+
+        public GearGeom(string name, bool isInternal, double m, int z, double alphaRad, double x, double phase, double thinning, double filletMm = 0.0, double tipShorten = 0.0)
         {
-            Name = name; Internal = isInternal; M = m; Z = z; Alpha = alphaRad; X = x; Phase = phase; Thinning = thinning; FilletReq = filletMm;
+            Name = name; Internal = isInternal; M = m; Z = z; Alpha = alphaRad; X = x; Phase = phase; Thinning = thinning; FilletReq = filletMm; TipShorten = tipShorten;
             R = m * z / 2;
             Rb = R * Math.Cos(alphaRad);
             const double ha = 1.0, c = 0.25;
             double s;
             if (!isInternal)
             {
-                Ra = R + m * (ha + x);
+                Ra = R + m * (ha + x) - tipShorten;
                 Rf = R - m * (ha + c - x);
                 s = m * (Math.PI / 2 + 2 * x * Math.Tan(alphaRad));
             }
             else
             {
-                Ra = R - m * (ha - x);
+                Ra = R - m * (ha - x) + tipShorten;      // internal: the tip is the inner radius
                 Rf = R + m * (ha + c + x);
                 s = m * (Math.PI / 2 - 2 * x * Math.Tan(alphaRad));
             }
@@ -759,6 +761,18 @@ namespace GearSet
             ShaftOut = Housing.SunShaftEndZ - ZB1;
         }
 
+        /// <summary>The gear back with its tip shortened when that tip passes the mate's base-tangent point.</summary>
+        private GearGeom TipClear(GearGeom tg, string mate, double cd, double aw, double j, double rf, double phase)
+        {
+            double limit = Math.Sqrt(tg.Rb * tg.Rb + Math.Pow(cd * Math.Sin(aw), 2));
+            double over = tg.Internal ? limit - tg.Ra : tg.Ra - limit;
+            if (over <= 1e-9) return tg;
+            double delta = over + 0.05 * M;
+            Notes.Add(tg.Name + ": tip shortened by " + delta.ToString("0.000", CultureInfo.InvariantCulture) + " mm - it reached "
+                + over.ToString("0.000", CultureInfo.InvariantCulture) + " mm past the base-tangent point of the " + mate + " (involute interference)");
+            return new GearGeom(tg.Name, tg.Internal, M, tg.Z, tg.Alpha, tg.X, phase, j, rf, delta);
+        }
+
         private static double Mod(double a, double p) { return a - Math.Floor(a / p) * p; }
 
         private static double PhaseFor(int z, double angle, bool wantTooth)
@@ -797,6 +811,18 @@ namespace GearSet
             ThinExt = new GearGeom("ThinRing external", false, m, d.Zr2, a, 0, phTe, j, rf);
             Fixed = new GearGeom("FixedRing", true, m, d.Zf, a, d.XFixed, phF, j, rf);
             Output = new GearGeom("OutputRing", true, m, d.Zo, a, d.XOutput, phO, j, rf);
+
+            // involute (tip) interference: on the line of action a tooth tip must not pass the mate's base-tangent
+            // point, else it digs into the mate's flank below the base circle (the 16/18/96 set: the thin ring's
+            // internal tips 36 um past the planet's base circle, 40 um of penetration at some phases). The tip that
+            // passes it is taken back by the overshoot plus 0.05 m. External pairs: either tip; internal pairs: the ring's.
+            double awF = d.OutputShifted ? a : d.Aw, awO = d.OutputShifted ? d.Aw : a;
+            double rp = m * d.Zp / 2;
+            Sun = TipClear(Sun, "planet", A1, a, j, rf, phS);
+            Planet = TipClear(Planet, "sun", A1, a, j, rf, phP);
+            ThinInt = TipClear(ThinInt, "planet", ThinInt.R - rp, a, j, rf, phTi);
+            Fixed = TipClear(Fixed, "thin ring", E, awF, j, rf, phF);
+            Output = TipClear(Output, "thin ring", E, awO, j, rf, phO);
 
             RingOuterR = Math.Max(Fixed.Rf, Output.Rf) + Rim;
             JournalR = ThinInt.Rf - FitClearance;

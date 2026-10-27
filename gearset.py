@@ -264,6 +264,7 @@ class GearGeom:
     phase: float         # angle of the first tooth centre
     thinning: float = 0.0  # tooth thickness reduction at the reference circle (mm) = half the mesh backlash
     fillet: float = 0.0  # requested root fillet radius (mm); 0 = sharp root corner
+    tip_shorten: float = 0.0  # tip taken back (mm) to clear the mate's base circle (involute interference)
     r: float = 0.0       # reference radius
     rb: float = 0.0      # base radius
     ra: float = 0.0      # tip radius (internal: inner)
@@ -276,11 +277,11 @@ class GearGeom:
         self.rb = self.r * math.cos(a)
         ha, c = 1.0, 0.25
         if self.kind == "external":
-            self.ra = self.r + m * (ha + x)
+            self.ra = self.r + m * (ha + x) - self.tip_shorten
             self.rf = self.r - m * (ha + c - x)
             s = m * (math.pi / 2 + 2 * x * math.tan(a))          # tooth thickness
         else:
-            self.ra = self.r - m * (ha - x)
+            self.ra = self.r - m * (ha - x) + self.tip_shorten   # internal: the tip is the inner radius
             self.rf = self.r + m * (ha + c + x)
             s = m * (math.pi / 2 - 2 * x * math.tan(a))          # internal tooth thickness
         self.half_ref = (s - self.thinning) / (2 * self.r)
@@ -561,6 +562,27 @@ class Model:
             "output_ring": GearGeom("output_ring", "internal", m, Zo, a, d.x_output, ph_o, j, rf_),
         }
         g = self.gears
+        # -- involute (tip) interference: on the line of action a tooth tip must not pass the mate's
+        #    base-tangent point, else it digs into the mate's flank below the base circle (seen on the
+        #    16/18/96 set: the thin ring's internal tips 36 um past the 18-tooth planet's base circle,
+        #    40 um of penetration at some phases). The tip that passes it is taken back by the overshoot
+        #    plus 0.05 m. External pairs: either tip; internal pairs: only the ring's tip can offend.
+        aw_f = d.aw if d.shifted == "fixed" else a
+        aw_o = d.aw if d.shifted == "output" else a
+        checks = [("sun", "planet", a1, a), ("planet", "sun", a1, a),
+                  ("thin_ring_internal", "planet", g["thin_ring_internal"].r - rp, a),
+                  ("fixed_ring", "thin_ring_external", e, aw_f), ("output_ring", "thin_ring_external", e, aw_o)]
+        tip_shortening = {}
+        for tip_name, mate_name, cd, aw in checks:
+            tg = g[tip_name]
+            limit = math.sqrt(tg.rb ** 2 + (cd * math.sin(aw)) ** 2)
+            over = (tg.ra - limit) if tg.kind == "external" else (limit - tg.ra)
+            if over > 1e-9:
+                delta = over + 0.05 * m
+                g[tip_name] = GearGeom(tg.name, tg.kind, m, tg.Z, a, tg.x, tg.phase, j, rf_, tip_shorten=delta)
+                tip_shortening[tip_name] = delta
+                self.notes.append(f"{tip_name}: tip shortened by {delta:.3f} mm - it reached {over:.3f} mm past the base-tangent "
+                                  f"point of the {mate_name} (involute interference); contact ratio recomputed with the shorter tip")
         b, gap = self.face_width, self.gap
         ring_outer_r = max(g["fixed_ring"].rf, g["output_ring"].rf) + self.rim
         journal_r = g["thin_ring_internal"].rf - self.fit_clearance
@@ -586,6 +608,7 @@ class Model:
             "shaft_in": 2 * b,          # input stub beyond z = 0
             "shaft_out": b,             # stub beyond the carrier
             "hole_circle_r": ring_outer_r - self.rim / 2,
+            "tip_shortening": tip_shortening,
         }
         # -- checks -------------------------------------------------------------
         for gg in g.values():
@@ -695,7 +718,7 @@ def mesh_penetration(gA: GearGeom, cA, phiA: float, gB: GearGeom, cB, phiB: floa
     return max(pAB, pBA)
 
 
-def verify_meshing(model: Model, steps: int = 24, pitches: float = 2.0) -> dict:
+def verify_meshing(model: Model, steps: int = 72, pitches: float = 2.0) -> dict:
     """Rotate every gear in the carrier frame through `pitches` sun tooth pitches and report the
     worst penetration of each mesh (mm). Positive values = teeth collide, 0 = clean."""
     if np is None:
