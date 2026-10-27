@@ -411,9 +411,13 @@ class GearGeom:
             if fil:
                 segs.append(fillet_seg(False))
                 r1, th1 = fil["t1"]
-                if self.rb > self.rf + 1e-9 and self.rb > r1 + 1e-9:
+                radial_line = self.rb > self.rf + 1e-9 and self.rb > r1 + 1e-9
+                if radial_line:
                     segs.append(("line", [(r1, tc + th1), (self.rb, tc - h0)]))
-                lead = [(r1, tc + th1)] + [(rho, tc - self.half_angle(rho)) for rho in radii[1:]]
+                # the flank starts where the fillet ends only when the fillet meets the involute itself; with a
+                # radial line between them it starts at the base circle, where the line ends (else it doubled the line)
+                lead = ([(rho, tc - self.half_angle(rho)) for rho in radii] if radial_line
+                        else [(r1, tc + th1)] + [(rho, tc - self.half_angle(rho)) for rho in radii[1:]])
             else:
                 if self.rb > self.rf + 1e-9:
                     segs.append(("line", [(self.rf, tc - h0), (self.rb, tc - h0)]))

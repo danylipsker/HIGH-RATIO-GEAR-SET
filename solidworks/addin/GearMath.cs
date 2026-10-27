@@ -476,9 +476,13 @@ namespace GearSet
                 if (fil != null)
                 {
                     segs.Add(FilletSeg(tc, false));
-                    if (Rb > Rf + 1e-9 && Rb > fil.T1R + 1e-9) segs.Add(Line(fil.T1R, tc + fil.T1Th, Rb, tc - h0));
+                    bool radialLine = Rb > Rf + 1e-9 && Rb > fil.T1R + 1e-9;
+                    if (radialLine) segs.Add(Line(fil.T1R, tc + fil.T1Th, Rb, tc - h0));
                     lead = Flank(radii, tc, -1, false);
-                    lead.Rho[0] = fil.T1R; lead.Theta[0] = tc + fil.T1Th;
+                    // the flank starts where the fillet ends only when the fillet meets the involute itself;
+                    // with a radial line between them the flank starts at the base circle, where the line ends
+                    // (starting it at the fillet end made the spline double the line)
+                    if (!radialLine) { lead.Rho[0] = fil.T1R; lead.Theta[0] = tc + fil.T1Th; }
                 }
                 else
                 {
