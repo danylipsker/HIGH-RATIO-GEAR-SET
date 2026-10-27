@@ -97,3 +97,29 @@ AddMate5 error); the same lines are in %TEMP%\GearSetAddin.log.
   repository root for a session that changes behaviour (see `SESSION-2026-10-25.md`).
 - When a set is requested ("ratio R, module m, max OD D, sun/planet counts"), run `gearset.py` with
   those options, read the report (warnings, contact ratios, rolling check), then run the macro.
+
+## State on 2026-10-27 (hand-off from the cloud session to the desktop)
+- The set lives in **two places**: this repository (reference geometry `gearset.py`, the standalone
+  add-in under `solidworks/addin/`, the stub compile check) and **GEARS GENERATOR**
+  (`C:\Users\Dany\source\claudecode\GEARS GENERATOR`, repo `danylipsker/gears-generator`), where it is
+  both a family card ("High-ratio planetary": ratio first, module second, the rest derived, engine
+  `py/gear_step/high_ratio.py` over `high_ratio_core.py` = a verbatim copy of `gearset.py`) and the
+  Task Pane button "High-ratio gear set (1:500)..." whose dialog (`HighRatio\GearSetForm.cs`) is a
+  copy of `solidworks/addin/GearSetForm.cs`. Change `GearMath.cs`, `GearBuilder.cs`, `GearSetForm.cs`
+  and `gearset.py` HERE, run `bash solidworks/stubs/compile_check.sh`, then copy them over unchanged
+  (and `gearset.py` to `py/gear_step/high_ratio_core.py`). Rebuild on the desktop with SolidWorks
+  closed: `dotnet build GearGen.slnx` in the GEARS GENERATOR folder (the add-in loads from
+  `src\GearGen.SolidWorksAddin\bin\x64\Debug\net48`).
+- Fixed today (see `SESSION-2026-10-25c.md`): trailing root fillets drawn the long way round; the flank
+  spline doubling the radial line below the base circle; involute (tip) interference (a tip past the
+  mate's base-tangent point is shortened automatically, note in the report); the rolling check at 72
+  steps. Added: every profile sketch is verified inside SolidWorks before the extrude (one closed
+  contour, exact entity counts, no stray lines) and every entity gets a Fixed relation (fully defined).
+  The dialog opens with the empty table, then module / ratio / Find solutions, then the picked row;
+  a ratio nothing reaches exactly widens the search and lists the nearest sets (the mechanism's floor
+  is about 1:165). A Motion Study "Sun drive" (60 rpm, 10 s) is added after the mates.
+- Verified on SolidWorks 2020: seventeen builds (four presets at modules 1, 1.25, 1.5, 2; the default
+  set with 0.05 backlash), each zero interferences and the exact ratio in motion; the sketch checks.
+- Known facts worth remembering: in the assembly with part sketches shown, mating flanks look like a
+  doubled line (zero backlash, near-equal curvature) - two parts, not a defect. Ratios under about
+  1:165 are not this mechanism's. The DXF files draw flanks as line segments by design.
