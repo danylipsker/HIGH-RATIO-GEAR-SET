@@ -397,7 +397,7 @@ class GearGeom:
             cx, cy = fil["c"]
             if mirror:
                 cxr, cyr = cx * math.cos(tc) + cy * math.sin(tc), cx * math.sin(tc) - cy * math.cos(tc)
-                ccw = not fil["ccw"]
+                ccw = fil["ccw"]        # mirrored and traversed backwards: the two reversals cancel
             else:
                 cxr, cyr = cx * math.cos(tc) - cy * math.sin(tc), cx * math.sin(tc) + cy * math.cos(tc)
                 ccw = fil["ccw"]

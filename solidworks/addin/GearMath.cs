@@ -539,7 +539,10 @@ namespace GearSet
             {
                 for (int i = 0; i < n; i++) { seg.Rho[i] = f.PtsR[n - 1 - i]; seg.Theta[i] = tc - f.PtsTh[n - 1 - i]; }
                 seg.Cx = f.Cx * c + f.Cy * s; seg.Cy = f.Cx * s - f.Cy * c;
-                seg.Ccw = !f.Ccw;
+                // mirrored AND traversed backwards (T1 -> T2): the two reversals cancel, the turning
+                // sense in the segment's own order is the original one (a flipped flag drew every
+                // trailing fillet the long way round, a 270 degree loop)
+                seg.Ccw = f.Ccw;
             }
             return seg;
         }
