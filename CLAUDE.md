@@ -123,3 +123,9 @@ AddMate5 error); the same lines are in %TEMP%\GearSetAddin.log.
 - Known facts worth remembering: in the assembly with part sketches shown, mating flanks look like a
   doubled line (zero backlash, near-equal curvature) - two parts, not a defect. Ratios under about
   1:165 are not this mechanism's. The DXF files draw flanks as line segments by design.
+- Desktop build (2026-10-27): `solidworks\addin\install.ps1 -BuildOnly` (64-bit PowerShell; from Git Bash
+  MSBuild's `/p:` switches are turned into paths) builds the add-in and `solidworks\swcli\bin\Release\GearSetCli.exe`
+  against the 2020 interop. `GearSetCli build -ratio 500 -module 1 -out <folder> -new` builds a set through
+  a hidden SolidWorks and prints the mate and sketch reports (the Motion Study is only created in a visible
+  instance). The standalone add-in is not registered here; GEARS GENERATOR's add-in carries the same files,
+  so a change is tested there with `dotnet build GearGen.slnx` and the dialog, or here with the CLI.

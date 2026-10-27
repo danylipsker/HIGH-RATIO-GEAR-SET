@@ -71,7 +71,7 @@ namespace GearSet
             try
             {
                 File.AppendAllText(Path.Combine(Path.GetTempPath(), "GearSetAddin.log"),
-                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + text + Environment.NewLine);
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + text + System.Environment.NewLine);
             }
             catch { /* ignore */ }
         }
@@ -139,7 +139,7 @@ namespace GearSet
         {
             var candidates = new List<string>();
             try { using (var k = Registry.CurrentUser.OpenSubKey(GearSetForm.RegistryKey)) if (k != null) candidates.Add(k.GetValue("Root") as string); } catch { }
-            candidates.Add(Environment.GetEnvironmentVariable("GEARSET_ROOT"));
+            candidates.Add(System.Environment.GetEnvironmentVariable("GEARSET_ROOT"));
             string dir = Path.GetDirectoryName(typeof(GearSetAddin).Assembly.Location);
             for (int i = 0; i < 6 && dir != null; i++) { candidates.Add(dir); dir = Path.GetDirectoryName(dir); }
             foreach (string c in candidates)

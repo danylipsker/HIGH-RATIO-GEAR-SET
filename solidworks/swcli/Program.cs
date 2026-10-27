@@ -77,7 +77,7 @@ namespace GearSet.Cli
                 using (var f = new GearSetForm(FindRoot()))
                 {
                     if (f.ShowDialog() == DialogResult.OK)
-                        Console.WriteLine("chosen: " + f.Result.Name + " -> " + f.OutputFolder + Environment.NewLine + f.Result.DimensionsText());
+                        Console.WriteLine("chosen: " + f.Result.Name + " -> " + f.OutputFolder + System.Environment.NewLine + f.Result.DimensionsText());
                     else Console.WriteLine("cancelled");
                 }
                 return 0;
@@ -107,7 +107,7 @@ namespace GearSet.Cli
                 if (File.Exists(Path.Combine(dir, "gearset.py"))) return dir;
                 dir = Path.GetDirectoryName(dir);
             }
-            return Environment.CurrentDirectory;
+            return System.Environment.CurrentDirectory;
         }
 
         private static int Solve(Dictionary<string, string> o, ISldWorks sw)
@@ -177,6 +177,8 @@ namespace GearSet.Cli
             BuildResult r = builder.Build(model, outDir, true, Get(o, "no-mates") == null);
             foreach (string f in r.Files) Console.WriteLine(f);
             foreach (string line in r.MateReport) Console.WriteLine("  mate: " + line);
+            foreach (string line in r.SketchReport) Console.WriteLine("  sketch: " + line);
+            Console.WriteLine("  sketches checked in SolidWorks: " + r.SketchesChecked + ", problems: " + r.SketchProblems + (r.MotionStudy != null ? "; " + r.MotionStudy : ""));
             return 0;
         }
 
