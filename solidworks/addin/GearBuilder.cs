@@ -674,6 +674,7 @@ namespace GearSet
             SketchManager sm = doc.SketchManager;
             Sketch sk = sm.ActiveSketch;
             VerifySketch(doc, sk);
+            FixSketch(doc, sk);
             sm.AddToDB = false;
             sm.DisplayWhenAdded = true;
             sm.InsertSketch(true);
@@ -801,6 +802,36 @@ namespace GearSet
                 Log.Add("sketch check: " + _sketchReport[_sketchReport.Count - 1]);
             }
             catch (Exception ex) { _sketchReport.Add("sketch check failed to run: " + ex.Message); Log.Add("sketch check: " + ex); }
+        }
+
+        /// <summary>
+        /// Every entity of the sketch gets a Fixed relation, so nothing in it can move or be dragged later: the
+        /// profile is positioned by its coordinates, not by dimensions (a dimension scheme for a thousand involute
+        /// splines would be unreadable). SolidWorks then reports the sketch fully defined; that status is appended
+        /// to the sketch's report line.
+        /// </summary>
+        private void FixSketch(IModelDoc2 doc, Sketch sk)
+        {
+            if (sk == null) return;
+            try
+            {
+                object[] segs = sk.GetSketchSegments() as object[];
+                if (segs == null || segs.Length == 0) return;
+                doc.ClearSelection2(true);
+                int selected = 0;
+                foreach (object o in segs)
+                    if (((ISketchSegment)o).Select4(selected > 0, null)) selected++;
+                if (selected > 0) doc.SketchAddConstraints("sgFIXED");
+                doc.ClearSelection2(true);
+                int status = sk.GetConstrainedStatus();
+                bool full = status == (int)swConstrainedStatus_e.swFullyConstrained;
+                string note = "fixed " + selected + " of " + segs.Length + " entities, " + (full ? "fully defined" : "NOT fully defined (status " + status + ")");
+                if (!full) _sketchProblems++;
+                if (_sketchReport.Count > 0) _sketchReport[_sketchReport.Count - 1] += "; " + note;
+                else _sketchReport.Add(note);
+                Log.Add("sketch fix: " + note);
+            }
+            catch (Exception ex) { _sketchReport.Add("fixing the sketch failed: " + ex.Message); _sketchProblems++; Log.Add("sketch fix: " + ex); }
         }
 
         private string Finish(IModelDoc2 doc, GearModel g, string name, int teeth, double x, string outDir)

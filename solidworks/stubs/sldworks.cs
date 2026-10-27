@@ -23,6 +23,7 @@ namespace SolidWorks.Interop.sldworks
         object FirstFeature();
         object SelectionManager { get; }
         void ClearSelection2(bool all);
+        void SketchAddConstraints(string constraint);
         string GetTitle();
         bool ForceRebuild3(bool topOnly);
         void ShowNamedView2(string name, int viewId);
@@ -42,7 +43,7 @@ namespace SolidWorks.Interop.sldworks
         SketchSegment CreateSpline2(object pointData, bool simulateNaturalEnds);
     }
     public interface SketchManager : ISketchManager { }
-    public interface ISketch { object GetSketchSegments(); object GetSketchContours(); }
+    public interface ISketch { object GetSketchSegments(); object GetSketchContours(); int GetConstrainedStatus(); }
     public interface ISketchContour { bool IsClosed(); }
     public interface SketchContour : ISketchContour { }
     public interface Sketch : ISketch { }
@@ -55,7 +56,7 @@ namespace SolidWorks.Interop.sldworks
             bool merge, bool useFeatScope, bool useAutoSelect, int t0, double startOffset, bool flipStartOffset);
     }
     public interface FeatureManager : IFeatureManager { }
-    public interface ISketchSegment { int GetType(); }
+    public interface ISketchSegment { int GetType(); bool Select4(bool append, SelectData data); }
     public interface SketchSegment : ISketchSegment { }
     public interface ISketchArc { object GetNormalVector(); }
     public interface SketchArc : ISketchArc { }

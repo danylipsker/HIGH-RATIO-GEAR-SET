@@ -254,7 +254,7 @@ namespace GearSet
         private static string SketchText(GearSet.BuildResult r)
         {
             if (r.SketchesChecked == 0) return "Sketches: not checked.";
-            if (r.SketchProblems == 0) return "Sketches: all " + r.SketchesChecked + " checked in SolidWorks - each tooth profile one closed contour, no stray lines.";
+            if (r.SketchProblems == 0) return "Sketches: all " + r.SketchesChecked + " checked in SolidWorks - each tooth profile one closed contour, no stray lines, every entity fixed, fully defined.";
             var bad = new System.Collections.Generic.List<string>();
             foreach (string line in r.SketchReport) if (line.Contains("PROBLEM")) bad.Add(line);
             return "Sketches: " + r.SketchProblems + " of " + r.SketchesChecked + " with a problem:\n" + string.Join("\n", bad.ToArray());

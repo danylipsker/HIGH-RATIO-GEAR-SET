@@ -20,3 +20,5 @@ namespace SolidWorks.Interop.swconst
 }
 
 namespace SolidWorks.Interop.swconst { public enum swSketchSegments_e { swSketchLINE = 0, swSketchARC = 1, swSketchELLIPSE = 2, swSketchSPLINE = 3, swSketchTEXT = 4, swSketchPARABOLA = 5 } }
+
+namespace SolidWorks.Interop.swconst { public enum swConstrainedStatus_e { swUnknownConstraint = 0, swUnderConstrained = 1, swFullyConstrained = 2, swOverConstrained = 3, swNoSolution = 4, swInvalidSolution = 5 } }
