@@ -621,11 +621,41 @@ namespace GearSet
     public class Bearing
     {
         public string Name; public double Bore, OD, Width;
-        public override string ToString() { return Name + " (" + Bore + " x " + OD + " x " + Width + ")"; }
+        // a catalogue part (BearingLibrary in GearBuilder.cs): the .SLDPRT, its configuration ("" = the only one),
+        // the axis of its bore in the part's own frame (X, Y or Z) and where the bearing's mid-width lies on that
+        // axis (mm from the part origin). Null File = a plain ring the builder makes itself.
+        public string File, Config; public char Axis = 'Z'; public double AxisOffset;
+        public bool FromCatalogue { get { return !string.IsNullOrEmpty(File); } }
+        public string Source
+        {
+            get
+            {
+                if (!FromCatalogue) return null;
+                string f = System.IO.Path.GetFileNameWithoutExtension(File);
+                return string.IsNullOrEmpty(Config) ? f : f + " [" + Config + "]";
+            }
+        }
+        public override string ToString() { return Name + " (" + Bore + " x " + OD + " x " + Width + ")" + (FromCatalogue ? " = " + Source : ""); }
+
+        /// <summary>The ISO 60-series designation of these dimensions (6000..6020), or null.</summary>
+        public static string IsoName(double bore, double od, double width)
+        {
+            foreach (var b in HousingSpec.Series60)
+                if (Math.Abs(b.Bore - bore) < 0.05 && Math.Abs(b.OD - od) < 0.05 && Math.Abs(b.Width - width) < 0.05) return b.Name;
+            return null;
+        }
     }
 
     public class HousingSpec
     {
+        // miniature deep-groove ball bearings 60x (bore 3..9), the reference sizes for catalogue parts below 10 mm
+        public static readonly Bearing[] Series60Small =
+        {
+            new Bearing { Name = "603", Bore = 3, OD = 9, Width = 3 }, new Bearing { Name = "604", Bore = 4, OD = 12, Width = 4 },
+            new Bearing { Name = "605", Bore = 5, OD = 14, Width = 5 }, new Bearing { Name = "606", Bore = 6, OD = 17, Width = 6 },
+            new Bearing { Name = "607", Bore = 7, OD = 19, Width = 6 }, new Bearing { Name = "608", Bore = 8, OD = 22, Width = 7 },
+            new Bearing { Name = "609", Bore = 9, OD = 24, Width = 7 },
+        };
         // deep-groove ball bearings 60xx, by bore (ISO 15): bore, OD, width
         public static readonly Bearing[] Series60 =
         {
@@ -647,6 +677,52 @@ namespace GearSet
             return Series60[Series60.Length - 1];
         }
 
+        /// <summary>The 60-series bearing of (nearly) this bore: what a catalogue part of that bore is compared with.</summary>
+        public static Bearing Reference(double bore)
+        {
+            Bearing best = null;
+            foreach (var tbl in new[] { Series60Small, Series60 })
+                foreach (var b in tbl)
+                    if (best == null || Math.Abs(b.Bore - bore) < Math.Abs(best.Bore - bore) - 1e-9) best = b;
+            return best;
+        }
+
+        private static bool IsPlain(Bearing b)
+        {
+            string n = (b.Name ?? "") + " " + (b.Config ?? "");
+            return n.IndexOf("ZZ", StringComparison.OrdinalIgnoreCase) < 0 && n.IndexOf("RS", StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
+        /// <summary>The catalogue bearing for a shaft: the smallest bore that takes it, and of those the one nearest the
+        /// 60-series size (so a 608 is chosen for an 8 mm shaft, not a thin MR 128 or a wide 638); an open bearing before a
+        /// shielded one. Without a catalogue, or when nothing in it is large enough, the plain 60xx ring.</summary>
+        public static Bearing ForBore(double minBore, IList<Bearing> catalogue)
+        {
+            if (catalogue == null || catalogue.Count == 0) return ForBore(minBore);
+            Bearing best = null; double bestScore = double.MaxValue;
+            foreach (var b in catalogue)
+            {
+                if (b.Bore < minBore - 1e-9) continue;
+                Bearing r = Reference(b.Bore);
+                double score = 10 * (b.Bore - minBore) + Math.Abs(b.OD - r.OD) + 0.5 * Math.Abs(b.Width - r.Width) + (IsPlain(b) ? 0 : 0.01);
+                if (score < bestScore - 1e-9) { bestScore = score; best = b; }
+            }
+            return best ?? ForBore(minBore);
+        }
+
+        /// <summary>The catalogue bearing with exactly these dimensions (an open one first), or null.</summary>
+        public static Bearing ForDims(double bore, double od, double width, IList<Bearing> catalogue)
+        {
+            Bearing best = null;
+            if (catalogue == null) return null;
+            foreach (var b in catalogue)
+            {
+                if (Math.Abs(b.Bore - bore) > 0.05 || Math.Abs(b.OD - od) > 0.05 || Math.Abs(b.Width - width) > 0.05) continue;
+                if (best == null || (IsPlain(b) && !IsPlain(best))) best = b;
+            }
+            return best;
+        }
+
         public Bearing SunBearing, HubBearing;
         public double Clearance;                         // radial running clearance of the output cup in the shell
         public double ShellInnerR, ShellOuterR, ShellZ0, ShellZ1, LipInnerR, LipZ0, LipZ1;
@@ -658,15 +734,15 @@ namespace GearSet
         public double SunBearingFrontZ0, SunBearingRearZ0, HubBearingZ0;
         public double OverallLength, OverallOD;
 
-        /// <summary>Lay the housing out around a gear model.</summary>
-        public static HousingSpec Create(GearModel g)
+        /// <summary>Lay the housing out around a gear model; with a catalogue, on its bearings (ForBore).</summary>
+        public static HousingSpec Create(GearModel g, IList<Bearing> catalogue = null)
         {
             var h = new HousingSpec();
             double m = g.M;
             h.Clearance = Math.Max(0.2, 0.2 * m);
-            h.SunBearing = ForBore(g.ShaftD);
+            h.SunBearing = ForBore(g.ShaftD, catalogue);
             double hubMin = Math.Max(3 * g.ShaftD, h.SunBearing.OD + 8 * m);     // hub must carry the sun's rear bearing inside
-            h.HubBearing = ForBore(hubMin);
+            h.HubBearing = ForBore(hubMin, catalogue);
             double R = g.RingOuterR;
             double wall = Math.Max(8.0, 8 * m);
             h.ShellInnerR = R + h.Clearance;
@@ -754,10 +830,11 @@ namespace GearSet
             return g;
         }
 
-        /// <summary>Add the housing (front cover, shell, output cup, rear cover, bearings); the sun shaft then ends inside the hub bearing.</summary>
-        public void AddHousing()
+        /// <summary>Add the housing (front cover, shell, output cup, rear cover, bearings); the sun shaft then ends inside
+        /// the hub bearing. With a catalogue of bearing parts the housing is laid out on those (seats to their OD and width).</summary>
+        public void AddHousing(IList<Bearing> catalogue = null)
         {
-            Housing = HousingSpec.Create(this);
+            Housing = HousingSpec.Create(this, catalogue);
             ShaftOut = Housing.SunShaftEndZ - ZB1;
         }
 

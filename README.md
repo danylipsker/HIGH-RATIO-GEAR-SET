@@ -115,9 +115,22 @@ a **Gear Set** tab appears with *Create gear set...*:
    sun's input bearing), `Shell` (clamps the fixed ring against an internal lip, bolt holes through the
    wall), `RearCover` (seat for the output hub bearing), and the two bearing parts; the output ring is
    built as an **output cup**: teeth, closing web, hub running in the rear bearing with the sun's rear
-   bearing inside it, and an output shaft. Bearings are standard 60xx deep-groove sizes picked by shaft
+   bearing inside it, and an output shaft. Bearings are deep-groove ball bearings picked by shaft
    diameter (module 1: 6001 for the sun, 6008 for the hub); housing parts and bearings are fixed
    components. The dimensions panel lists shell OD, bolt circle, bearings and overall length.
+   **The bearings are real catalogue parts** when a bearing library is set (Advanced › *Bearings from
+   catalogue parts*; default: NSK's "Minature Ball Bearings 600 Series" configured part and the GOST
+   8338-75 60xx folder under `C:\HARDWARE AND MORE\Bearings`, when present). Every `.SLDPRT` named there
+   (or every part in a folder named there) is opened once in SolidWorks and each of its configurations
+   measured - bore axis and width from the bounding box, the OD from the two equal extents, the bore
+   from the smallest cylindrical face on that axis - and remembered under `%LOCALAPPDATA%\GearSetAddin\bearings`.
+   For each bore the housing takes the catalogue bearing of the smallest bore that fits and, of those,
+   the one nearest the 60-series size (608 for an 8 mm shaft, not an MR 128 or a 638; open before
+   shielded), lays its seats out to that part's OD and width, and inserts the part itself into the
+   assembly in that configuration, turned so its bore is on the sun axis (the placed box is read back
+   and checked). What came from where is in the build message under "Bearings" and in the log. Blank
+   library = the plain rings the builder makes itself; a bore nothing in the library takes gets a plain
+   ring too. The saved assembly references the library parts in place - keep that folder.
 6. With **add mates** ticked (default) the assembly is fully mated with one degree of freedom: Front
    Planes coincident for the axial positions, concentric mates on the sun shaft, carrier pin, carrier
    journal and ring cylinders, and four gear mates that tie carrier, planet, thin ring and output ring
@@ -128,7 +141,9 @@ a **Gear Set** tab appears with *Create gear set...*:
 
 Command line, same code: `swcli\bin\Release\GearSetCli.exe solve -ratio 500 -module 1` (table, no
 SOLIDWORKS), `GearSetCli.exe test-dialog` (dialog alone), `GearSetCli.exe build -ratio 500 -module 1 -pick 1`
-(builds through the running SOLIDWORKS, or a hidden new one with `-new`).
+(builds through the running SOLIDWORKS, or a hidden new one with `-new`; `-bearings <files;folders>` or
+`-bearings none` overrides the bearing library), `GearSetCli.exe bearings [-paths ...] [-cached]` (measures,
+or lists from the cache, every catalogue bearing: name, bore, OD, width, axis, part).
 
 Diagnostics: `%TEMP%\GearSetAddin.log`. Verified on SolidWorks 2020 (2026-10-25): compiles against the
 real interop, registers, builds the default 1:500 set, zero interferences in the resulting assembly.

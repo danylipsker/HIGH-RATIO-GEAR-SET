@@ -10,11 +10,218 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using Microsoft.Win32;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 
 namespace GearSet
 {
+    /// <summary>Catalogue bearing parts. Every .SLDPRT given (a file, or a folder of them; ';' separated) is opened once in
+    /// SolidWorks and each of its configurations measured: the bore axis is the short extent of the bounding box (the two
+    /// other extents, equal, give the OD), the width is that short extent, the bore is the smallest cylindrical face on
+    /// that axis. The result is cached under %LOCALAPPDATA%\GearSetAddin\bearings, keyed by the file's path, size and
+    /// time, so without SolidWorks (the dialog, GearSetCli solve) FromCache gives the same bearings a build will use once
+    /// the files have been scanned. Known sources: NSK's "600 Series" part (118 configurations named by designation,
+    /// 681 .. 639 and MR, bore 1..9 mm, axis Z) and the GOST 8338-75 folder (one file per bearing, 100 = 6000 .. 120 =
+    /// 6020 and 16 .. 18, axis X, rings + balls + cage).</summary>
+    public class BearingLibrary
+    {
+        public const string RegistryValue = "BearingLibrary";
+        public static readonly string[] KnownFolders =
+        {
+            @"C:\HARDWARE AND MORE\Bearings\nsk-minature-ball-bearings-600-series-solidworks-2018-1.snapshot.2",
+            @"C:\HARDWARE AND MORE\Bearings\1xx-8338-75-radial-ball-bearing-60xx-iso-1.snapshot.2",
+        };
+        public List<Bearing> Bearings = new List<Bearing>();
+        public List<string> Report = new List<string>();
+
+        /// <summary>The remembered library (HKCU\Software\GearSetAddin\BearingLibrary; an empty value means none), else the
+        /// known folders that exist on this machine.</summary>
+        public static string DefaultPaths()
+        {
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(GearSetForm.RegistryKey))
+                {
+                    string v = k == null ? null : k.GetValue(RegistryValue) as string;
+                    if (v != null) return v;
+                }
+            }
+            catch { /* defaults */ }
+            var found = new List<string>();
+            foreach (string f in KnownFolders) if (Directory.Exists(f)) found.Add(f);
+            return string.Join(";", found.ToArray());
+        }
+
+        /// <summary>The .SLDPRT files named by a ';'-separated list of files and folders (folders: their parts, sorted).</summary>
+        public static List<string> Files(string paths)
+        {
+            var files = new List<string>();
+            if (string.IsNullOrWhiteSpace(paths)) return files;
+            foreach (string raw in paths.Split(';'))
+            {
+                string p = raw.Trim().Trim('"');
+                if (p.Length == 0) continue;
+                if (Directory.Exists(p))
+                {
+                    var l = new List<string>(Directory.GetFiles(p, "*.SLDPRT"));
+                    l.Sort(StringComparer.OrdinalIgnoreCase);
+                    files.AddRange(l);
+                }
+                else if (File.Exists(p)) files.Add(p);
+            }
+            return files;
+        }
+
+        /// <summary>The cached measurements only (no SolidWorks); files not scanned yet are named in Report.</summary>
+        public static BearingLibrary FromCache(string paths)
+        {
+            var lib = new BearingLibrary();
+            foreach (string f in Files(paths))
+            {
+                List<Bearing> l = ReadCache(f);
+                if (l == null) lib.Report.Add(Path.GetFileName(f) + ": not measured yet (the next build in SolidWorks does it)");
+                else { lib.Bearings.AddRange(l); lib.Report.Add(Path.GetFileName(f) + ": " + l.Count + " bearings (cached)"); }
+            }
+            return lib;
+        }
+
+        /// <summary>The library, measuring in SolidWorks whatever is not cached yet.</summary>
+        public static BearingLibrary Scan(ISldWorks sw, string paths, Action<string> progress)
+        {
+            var lib = new BearingLibrary();
+            List<string> files = Files(paths);
+            if (files.Count == 0) lib.Report.Add("no .SLDPRT found in: " + paths);
+            foreach (string f in files)
+            {
+                List<Bearing> l = ReadCache(f);
+                if (l == null)
+                {
+                    if (progress != null) progress("measuring the bearings in " + Path.GetFileName(f));
+                    l = Measure(sw, f, lib.Report);
+                    WriteCache(f, l);
+                }
+                lib.Bearings.AddRange(l);
+                lib.Report.Add(Path.GetFileName(f) + ": " + l.Count + " bearings");
+            }
+            return lib;
+        }
+
+        private static List<Bearing> Measure(ISldWorks sw, string file, List<string> report)
+        {
+            var list = new List<Bearing>();
+            int e = 0, w = 0;
+            ModelDoc2 doc = sw.OpenDoc6(file, (int)swDocumentTypes_e.swDocPART,
+                (int)(swOpenDocOptions_e.swOpenDocOptions_Silent | swOpenDocOptions_e.swOpenDocOptions_ReadOnly), "", ref e, ref w);
+            if (doc == null) { report.Add(Path.GetFileName(file) + ": could not be opened (error " + e + ")"); return list; }
+            try
+            {
+                IPartDoc part = (IPartDoc)doc;
+                object[] names = doc.GetConfigurationNames() as object[];
+                bool many = names != null && names.Length > 1;
+                string active = null;
+                try { active = doc.ConfigurationManager.ActiveConfiguration.Name; } catch { }
+                var configs = new List<string>();
+                if (many) foreach (object o in names) configs.Add((string)o);
+                else configs.Add("");
+                foreach (string cfg in configs)
+                {
+                    if (cfg.Length > 0) { doc.ShowConfiguration2(cfg); doc.ForceRebuild3(false); }
+                    Bearing b = MeasureShape(part, file, cfg);
+                    if (b == null) { report.Add(Path.GetFileName(file) + (cfg.Length > 0 ? " [" + cfg + "]" : "") + ": not a bearing shape (round about one axis, centred, with a bore), skipped"); continue; }
+                    list.Add(b);
+                }
+                if (many && active != null) { try { doc.ShowConfiguration2(active); } catch { } }
+            }
+            finally { try { sw.CloseDoc(doc.GetTitle()); } catch { } }
+            return list;
+        }
+
+        private static Bearing MeasureShape(IPartDoc part, string file, string cfg)
+        {
+            double[] box = part.GetPartBox(true) as double[];
+            if (box == null || box.Length < 6) return null;
+            double[] ext = { (box[3] - box[0]) * 1000, (box[4] - box[1]) * 1000, (box[5] - box[2]) * 1000 };
+            double[] mid = { (box[0] + box[3]) * 500, (box[1] + box[4]) * 500, (box[2] + box[5]) * 500 };
+            int ax = 0;
+            for (int i = 1; i < 3; i++) if (ext[i] < ext[ax]) ax = i;
+            int o1 = (ax + 1) % 3, o2 = (ax + 2) % 3;
+            if (Math.Abs(ext[o1] - ext[o2]) > 0.02 * Math.Max(ext[o1], ext[o2]) + 0.05) return null;   // not round about that axis
+            if (Math.Abs(mid[o1]) > 0.05 || Math.Abs(mid[o2]) > 0.05) return null;                        // not on the axis
+            double od = Math.Max(ext[o1], ext[o2]), width = ext[ax];
+            if (width >= od) return null;
+            double bore = double.MaxValue;
+            object[] bodies = part.GetBodies2((int)swBodyType_e.swSolidBody, true) as object[];
+            if (bodies == null) return null;
+            foreach (object bo in bodies)
+            {
+                object[] faces = ((IBody2)bo).GetFaces() as object[];
+                if (faces == null) continue;
+                foreach (object fo in faces)
+                {
+                    ISurface s = (ISurface)((IFace2)fo).GetSurface();
+                    if (s == null || !s.IsCylinder()) continue;
+                    double[] p = s.CylinderParams as double[];           // origin x y z, axis x y z, radius (metres)
+                    if (p == null || p.Length < 7 || Math.Abs(p[3 + ax]) < 0.999) continue;
+                    if (Math.Abs(p[o1]) * 1000 > 0.02 || Math.Abs(p[o2]) * 1000 > 0.02) continue;   // a cage pocket, not the bore
+                    bore = Math.Min(bore, 2 * p[6] * 1000);
+                }
+            }
+            if (bore == double.MaxValue || bore >= od - 0.01) return null;
+            bore = Math.Round(bore, 3); od = Math.Round(od, 3); width = Math.Round(width, 3);
+            string name = Bearing.IsoName(bore, od, width) ?? (cfg.Length > 0 ? cfg : Path.GetFileNameWithoutExtension(file));
+            return new Bearing { File = file, Config = cfg, Axis = "XYZ"[ax], AxisOffset = Math.Round(mid[ax], 4), Bore = bore, OD = od, Width = width, Name = name };
+        }
+
+        // ---- the cache: one text file per catalogue part, first line = size|time, then one bearing per line
+        private static string CacheFile(string file)
+        {
+            string dir = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "GearSetAddin", "bearings");
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, Fnv(file.ToLowerInvariant()) + ".txt");
+        }
+
+        private static string Fnv(string s)
+        {
+            ulong h = 14695981039346656037;
+            foreach (char c in s) { h ^= c; h *= 1099511628211; }
+            return h.ToString("x16");
+        }
+
+        private static string Stamp(string file)
+        {
+            var fi = new FileInfo(file);
+            return fi.Length + "|" + fi.LastWriteTimeUtc.Ticks;
+        }
+
+        private static List<Bearing> ReadCache(string file)
+        {
+            string cf = CacheFile(file);
+            if (!File.Exists(cf)) return null;
+            string[] lines = File.ReadAllLines(cf);
+            if (lines.Length == 0 || lines[0] != Stamp(file)) return null;
+            var list = new List<Bearing>();
+            for (int i = 1; i < lines.Length; i++)
+            {
+                string[] t = lines[i].Split('\t');
+                if (t.Length < 7) continue;
+                list.Add(new Bearing { File = file, Config = t[0], Axis = t[1][0], AxisOffset = D(t[2]), Bore = D(t[3]), OD = D(t[4]), Width = D(t[5]), Name = t[6] });
+            }
+            return list;
+        }
+
+        private static void WriteCache(string file, List<Bearing> list)
+        {
+            var lines = new List<string> { Stamp(file) };
+            foreach (Bearing b in list)
+                lines.Add(b.Config + "\t" + b.Axis + "\t" + S(b.AxisOffset) + "\t" + S(b.Bore) + "\t" + S(b.OD) + "\t" + S(b.Width) + "\t" + b.Name);
+            File.WriteAllLines(CacheFile(file), lines.ToArray());
+        }
+
+        private static double D(string s) { return double.Parse(s, CultureInfo.InvariantCulture); }
+        private static string S(double v) { return v.ToString("R", CultureInfo.InvariantCulture); }
+    }
+
     public class BuildResult
     {
         public List<string> Files = new List<string>();
@@ -25,6 +232,7 @@ namespace GearSet
         public string MotionStudy;              // what the Motion Study got, null = none
         public List<string> SketchReport = new List<string>();   // one line per profile sketch, as SolidWorks saw it
         public int SketchesChecked, SketchProblems;
+        public List<string> BearingReport = new List<string>();  // which bearing came from which catalogue part, and how it was placed
     }
 
     public class GearBuilder
@@ -40,6 +248,12 @@ namespace GearSet
         /// input stub. 60 rpm for 10 s = 10 sun turns: 7.2 degrees on the output ring of the 1:500 set.</summary>
         public bool AddMotor = true;
         public double MotorRpm = 60, MotorSeconds = 10;
+        /// <summary>Catalogue bearing parts (.SLDPRT files, or folders of them, ';' separated - see BearingLibrary): the
+        /// housing takes its bearings from these real parts, measured once in SolidWorks and cached, instead of the
+        /// plain rings it would otherwise make. Blank = plain rings. Default: the dialog's remembered value, else the
+        /// known folders under C:\HARDWARE AND MORE\Bearings.</summary>
+        public string BearingLibraryPaths = BearingLibrary.DefaultPaths();
+        public BearingLibrary Library;              // scanned on the first build that needs it
         private IFace2 _sunFace;                    // the sun's input stub, found by AddMates, the motor's face
         // what AddOutline put into the sketch being drawn, so Extrude can ask SolidWorks whether it got exactly that
         private int _expOutlines, _expArcs, _expFillets, _expLines, _expSplines, _expTeeth;
@@ -67,6 +281,7 @@ namespace GearSet
             Say("calibrating API direction conventions");
             Calibrate();
             Say("calibration: dirFlip=" + _dirFlip + " offFlip=" + _offFlip + " arcCCW=" + _arcCcw);
+            if (g.Housing != null) UseCatalogueBearings(g, res);
 
             var paths = new Dictionary<string, string>();
             Say("fixed ring (" + g.Design.Zf + " teeth)");
@@ -87,8 +302,8 @@ namespace GearSet
                 Say("front cover"); paths["FrontCover"] = BuildFrontCover(g, outDir);
                 Say("shell"); paths["Shell"] = BuildShell(g, outDir);
                 Say("rear cover"); paths["RearCover"] = BuildRearCover(g, outDir);
-                Say("bearing " + h.SunBearing.Name); paths["BearingSun"] = BuildBearing(g, h.SunBearing, outDir);
-                Say("bearing " + h.HubBearing.Name); paths["BearingHub"] = BuildBearing(g, h.HubBearing, outDir);
+                if (!h.SunBearing.FromCatalogue) { Say("bearing " + h.SunBearing.Name); paths["BearingSun"] = BuildBearing(g, h.SunBearing, outDir); }
+                if (!h.HubBearing.FromCatalogue) { Say("bearing " + h.HubBearing.Name); paths["BearingHub"] = BuildBearing(g, h.HubBearing, outDir); }
             }
             foreach (var p in paths.Values) res.Files.Add(p);
 
@@ -105,6 +320,28 @@ namespace GearSet
             res.SketchReport.AddRange(_sketchReport); res.SketchesChecked = _sketchesChecked; res.SketchProblems = _sketchProblems;
             Say("done: " + res.Files.Count + " files in " + outDir + "; profile sketches checked in SolidWorks: " + _sketchesChecked + ", problems: " + _sketchProblems);
             return res;
+        }
+
+        /// <summary>Lay the housing out again on the catalogue bearings (the library measured in SolidWorks, cached),
+        /// when a library is set: the real part of the nearest 60-series size for each bore instead of a plain ring.</summary>
+        private void UseCatalogueBearings(GearModel g, BuildResult res)
+        {
+            if (string.IsNullOrWhiteSpace(BearingLibraryPaths)) { res.BearingReport.Add("no bearing library set: plain rings"); return; }
+            try
+            {
+                if (Library == null) Library = BearingLibrary.Scan(_sw, BearingLibraryPaths, Say);
+                foreach (string line in Library.Report) Log.Add("bearing library: " + line);
+                if (Library.Bearings.Count == 0) { res.BearingReport.Add("bearing library empty (" + BearingLibraryPaths + "): plain rings"); return; }
+                g.AddHousing(Library.Bearings);
+                res.BearingReport.Add("sun bearing: " + Describe(g.Housing.SunBearing));
+                res.BearingReport.Add("output hub bearing: " + Describe(g.Housing.HubBearing));
+            }
+            catch (Exception ex) { res.BearingReport.Add("bearing library failed (" + ex.Message + "): plain rings"); Log.Add("bearing library: " + ex); }
+        }
+
+        private static string Describe(Bearing b)
+        {
+            return b.FromCatalogue ? b + " (" + b.File + ")" : b + " as a plain ring (no catalogue part takes this bore)";
         }
 
         // ------------------------------------------------------------------------------ parts
@@ -282,10 +519,10 @@ namespace GearSet
                     Insert(asm, paths["FrontCover"], opt, 0, 0, 0),
                     Insert(asm, paths["Shell"], opt, 0, 0, 0),
                     Insert(asm, paths["RearCover"], opt, 0, 0, 0),
-                    Insert(asm, paths["BearingSun"], opt, 0, 0, h.SunBearingFrontZ0 / 1000),
-                    Insert(asm, paths["BearingSun"], opt, 0, 0, h.SunBearingRearZ0 / 1000),
-                    Insert(asm, paths["BearingHub"], opt, 0, 0, h.HubBearingZ0 / 1000),
                 };
+                fixedComps.Add(InsertBearing(asmDoc, asm, h.SunBearing, paths, "BearingSun", h.SunBearingFrontZ0, "sun front", res));
+                fixedComps.Add(InsertBearing(asmDoc, asm, h.SunBearing, paths, "BearingSun", h.SunBearingRearZ0, "sun rear", res));
+                fixedComps.Add(InsertBearing(asmDoc, asm, h.HubBearing, paths, "BearingHub", h.HubBearingZ0, "output hub", res));
                 foreach (Component2 fc in fixedComps)
                 {
                     try
@@ -473,11 +710,159 @@ namespace GearSet
             }
             catch (Exception ex) { res.MateReport.Add("unfix: " + ex.Message); }
 
+            if (g.Housing != null) ReplaceImportedBearings(asmDoc, asm, g, candidates, usedComps, res);
             AddMates(asmDoc, g, found, res);
             AddMotionStudy(asmDoc, res);
             asmDoc.ClearSelection2(true);
             try { asmDoc.ForceRebuild3(false); } catch { }
             return res;
+        }
+
+        // ------------------------------------------------------------------------------ catalogue bearings
+        /// <summary>One bearing into the assembly, bore on the sun axis, from z0 to z0 + width: the catalogue part in
+        /// its configuration, turned so that its bore axis is Z and its mid-width sits at z0 + width/2 - or the plain
+        /// ring built from z = 0 when the bearing has no catalogue part.</summary>
+        private Component2 InsertBearing(IModelDoc2 asmDoc, IAssemblyDoc asm, Bearing b, Dictionary<string, string> paths, string key, double z0, string what, BuildResult res)
+        {
+            int opt = (int)swAddComponentConfigOptions_e.swAddComponentConfigOptions_CurrentSelectedConfig;
+            if (!b.FromCatalogue) return Insert(asm, paths[key], opt, 0, 0, z0 / 1000);
+            return PlaceCatalogueBearing(asmDoc, asm, b, z0, what, res);
+        }
+
+        /// <summary>The catalogue part placed with its bore on Z from z0 to z0 + width. The part is inserted in its
+        /// configuration, then given a transform: the rotation that takes its bore axis onto Z (row-vector convention,
+        /// p' = p R + t) and the translation that puts its mid-width at z0 + width/2. The component's box is read back
+        /// and checked against the bearing; if the rotation came out the other way, the transposed one is applied.</summary>
+        private Component2 PlaceCatalogueBearing(IModelDoc2 asmDoc, IAssemblyDoc asm, Bearing b, double z0, string what, BuildResult res)
+        {
+            int opt = (int)swAddComponentConfigOptions_e.swAddComponentConfigOptions_CurrentSelectedConfig;
+            string cfg = b.Config ?? "";
+            double zc = (z0 + b.Width / 2) / 1000;
+            Component2 c = asm.AddComponent5(b.File, opt, "", false, cfg, 0, 0, zc);
+            if (c == null)
+            {
+                int e = 0, w = 0;
+                _sw.OpenDoc6(b.File, (int)swDocumentTypes_e.swDocPART, (int)swOpenDocOptions_e.swOpenDocOptions_Silent, cfg, ref e, ref w);
+                c = asm.AddComponent5(b.File, opt, "", false, cfg, 0, 0, zc);
+            }
+            if (c == null) throw new InvalidOperationException("could not insert the catalogue bearing " + b.Source + " (" + b.File + ")");
+            try
+            {
+                if (cfg.Length > 0 && c.ReferencedConfiguration != cfg) { c.ReferencedConfiguration = cfg; Log.Add(what + " bearing: configuration set to " + cfg); }
+            }
+            catch (Exception ex) { Log.Add(what + " bearing configuration: " + ex.Message); }
+
+            string placed = null;
+            for (int attempt = 0; attempt < 2 && placed == null; attempt++)
+            {
+                double[] rot = Rotation(b.Axis, attempt == 1);
+                // the bearing's mid-width in the part frame, rotated, is what must land on (0, 0, zc)
+                double[] off = { 0, 0, 0 };
+                off["XYZ".IndexOf(b.Axis)] = b.AxisOffset / 1000;
+                double[] offR = { off[0] * rot[0] + off[1] * rot[3] + off[2] * rot[6], off[0] * rot[1] + off[1] * rot[4] + off[2] * rot[7], off[0] * rot[2] + off[1] * rot[5] + off[2] * rot[8] };
+                var data = new double[16];
+                Array.Copy(rot, data, 9);
+                data[9] = -offR[0]; data[10] = -offR[1]; data[11] = zc - offR[2]; data[12] = 1;
+                try
+                {
+                    MathUtility mu = (MathUtility)_sw.GetMathUtility();
+                    MathTransform mt = (MathTransform)mu.CreateTransform(data);
+                    c.Transform2 = mt;
+                    asmDoc.EditRebuild3();
+                }
+                catch (Exception ex) { Log.Add(what + " bearing transform: " + ex.Message); }
+                placed = CheckBearingBox(c, b, z0);
+                if (placed == null && attempt == 0) Log.Add(what + " bearing: the box is not where the bearing belongs after the rotation; trying the transposed rotation");
+            }
+            res.BearingReport.Add(what + " bearing " + b + (placed ?? ": PROBLEM, the placed box does not match the bearing (see the log)"));
+            return c;
+        }
+
+        /// <summary>Row-vector rotation taking the part's bore axis onto Z (or its transpose).</summary>
+        private static double[] Rotation(char axis, bool transpose)
+        {
+            double[] r;
+            switch (char.ToUpperInvariant(axis))
+            {
+                case 'X': r = new double[] { 0, 0, 1, 0, 1, 0, -1, 0, 0 }; break;
+                case 'Y': r = new double[] { 1, 0, 0, 0, 0, 1, 0, -1, 0 }; break;
+                default: return new double[] { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+            }
+            if (!transpose) return r;
+            return new[] { r[0], r[3], r[6], r[1], r[4], r[7], r[2], r[5], r[8] };
+        }
+
+        /// <summary>The component's box against the bearing's (OD x OD x width from z0, about the sun axis): a line
+        /// saying where it sits when it matches (0.6 mm + 2 % tolerance), null when it does not.</summary>
+        private string CheckBearingBox(Component2 c, Bearing b, double z0)
+        {
+            double[] box = null;
+            try { box = c.GetBox(false, false) as double[]; } catch (Exception ex) { Log.Add("bearing box: " + ex.Message); }
+            if (box == null || box.Length < 6) return null;
+            double x0 = Math.Min(box[0], box[3]) * 1000, x1 = Math.Max(box[0], box[3]) * 1000;
+            double y0 = Math.Min(box[1], box[4]) * 1000, y1 = Math.Max(box[1], box[4]) * 1000;
+            double zz0 = Math.Min(box[2], box[5]) * 1000, zz1 = Math.Max(box[2], box[5]) * 1000;
+            double tol = 0.6 + 0.02 * b.OD;
+            bool ok = Math.Abs(x0 + b.OD / 2) < tol && Math.Abs(x1 - b.OD / 2) < tol && Math.Abs(y0 + b.OD / 2) < tol && Math.Abs(y1 - b.OD / 2) < tol
+                      && Math.Abs(zz0 - z0) < tol && Math.Abs(zz1 - (z0 + b.Width)) < tol;
+            Log.Add(string.Format(CultureInfo.InvariantCulture, "bearing {0}: placed box x {1:0.##}..{2:0.##} y {3:0.##}..{4:0.##} z {5:0.##}..{6:0.##} (wanted OD {7} from z {8:0.##} to {9:0.##}) {10}",
+                b.Source, x0, x1, y0, y1, zz0, zz1, b.OD, z0, z0 + b.Width, ok ? "ok" : "MISMATCH"));
+            return ok ? string.Format(CultureInfo.InvariantCulture, ": placed on the sun axis, z {0:0.##}..{1:0.##}, box as expected", z0, z0 + b.Width) : null;
+        }
+
+        /// <summary>The family path's bearings arrive as plain solids in the STEP: each one whose box matches a
+        /// catalogue bearing of exactly the same bore, OD and width is deleted and the catalogue part put in its
+        /// place (fixed, like the imported one was). Anything without an exact catalogue match stays as imported.</summary>
+        private void ReplaceImportedBearings(IModelDoc2 asmDoc, IAssemblyDoc asm, GearModel g, List<KeyValuePair<Component2, double[]>> candidates, HashSet<string> usedComps, BuildResult res)
+        {
+            if (string.IsNullOrWhiteSpace(BearingLibraryPaths)) { res.BearingReport.Add("no bearing library set: the imported bearings stay"); return; }
+            try
+            {
+                if (Library == null) Library = BearingLibrary.Scan(_sw, BearingLibraryPaths, Say);
+                foreach (string line in Library.Report) Log.Add("bearing library: " + line);
+            }
+            catch (Exception ex) { res.BearingReport.Add("bearing library failed (" + ex.Message + "): the imported bearings stay"); Log.Add("bearing library: " + ex); return; }
+            HousingSpec h = g.Housing;
+            var wanted = new[]
+            {
+                new { B = h.SunBearing, Z0 = h.SunBearingFrontZ0, What = "sun front" },
+                new { B = h.SunBearing, Z0 = h.SunBearingRearZ0, What = "sun rear" },
+                new { B = h.HubBearing, Z0 = h.HubBearingZ0, What = "output hub" },
+            };
+            foreach (var wnt in wanted)
+            {
+                Bearing cat = HousingSpec.ForDims(wnt.B.Bore, wnt.B.OD, wnt.B.Width, Library.Bearings);
+                if (cat == null) { res.BearingReport.Add(wnt.What + " bearing " + wnt.B + ": no catalogue part with exactly these dimensions, the imported solid stays"); continue; }
+                double[] exp = { -wnt.B.OD / 2, -wnt.B.OD / 2, wnt.Z0, wnt.B.OD / 2, wnt.B.OD / 2, wnt.Z0 + wnt.B.Width };
+                Component2 best = null; double bestErr = double.MaxValue;
+                foreach (var cand in candidates)
+                {
+                    if (usedComps.Contains(cand.Key.Name2)) continue;
+                    double err = 0;
+                    for (int i = 0; i < 6; i++) err += Math.Abs(cand.Value[i] - exp[i]);
+                    if (err < bestErr) { bestErr = err; best = cand.Key; }
+                }
+                if (best == null || bestErr > 1.0 + 0.05 * wnt.B.OD)
+                {
+                    res.BearingReport.Add(wnt.What + " bearing " + wnt.B + ": no imported component has its box" + (best != null ? " (closest " + best.Name2 + ", off by " + bestErr.ToString("0.#", CultureInfo.InvariantCulture) + " mm)" : "") + ", nothing replaced");
+                    continue;
+                }
+                string oldName = best.Name2;
+                try
+                {
+                    usedComps.Add(oldName);
+                    asmDoc.ClearSelection2(true);
+                    if (!best.Select4(false, null, false)) { res.BearingReport.Add(wnt.What + " bearing: could not select " + oldName + " to replace it"); continue; }
+                    asmDoc.EditDelete();
+                    asmDoc.ClearSelection2(true);
+                    Component2 c = PlaceCatalogueBearing(asmDoc, asm, cat, wnt.Z0, wnt.What, res);
+                    asmDoc.ClearSelection2(true);
+                    if (c.Select4(false, null, false)) asm.FixComponent();
+                    asmDoc.ClearSelection2(true);
+                    Log.Add(wnt.What + " bearing: imported " + oldName + " replaced by " + cat.Source);
+                }
+                catch (Exception ex) { res.BearingReport.Add(wnt.What + " bearing: replacing " + oldName + " failed: " + ex.Message); Log.Add("replace bearing: " + ex); }
+            }
         }
 
         // ------------------------------------------------------------------------------ motion study

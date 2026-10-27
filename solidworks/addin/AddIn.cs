@@ -152,37 +152,40 @@ namespace GearSet
         {
             try
             {
-                GearModel model; string folder; bool mates;
+                GearModel model; string folder; bool mates; string bearings;
                 using (var form = new GearSetForm(FindRoot()))
                 {
                     if (form.ShowDialog() != DialogResult.OK) return;
-                    model = form.Result; folder = form.OutputFolder; mates = form.AddMates;
+                    model = form.Result; folder = form.OutputFolder; mates = form.AddMates; bearings = form.BearingLibraryPaths;
                 }
                 string message;
-                bool ok = BuildNow(model, folder, mates, out message);
+                bool ok = BuildNow(model, folder, mates, out message, bearings);
                 Msg(message, !ok);
             }
             catch (Exception ex) { Msg("Gear Set error:\n" + ex, true); }
         }
 
         /// <summary>Headless build (same pipeline as the dialog) for automation and tests.</summary>
-        public bool BuildNow(GearModel model, string folder, bool addMates, out string message)
+        public bool BuildNow(GearModel model, string folder, bool addMates, out string message, string bearingLibrary = null)
         {
             Cursor.Current = Cursors.WaitCursor;
             try
             {
                 var builder = new GearBuilder(_sw);
                 builder.Progress = s => Log(s);
+                if (bearingLibrary != null) builder.BearingLibraryPaths = bearingLibrary;
                 BuildResult r = builder.Build(model, folder, true, addMates);
                 foreach (string line in r.MateReport) Log("mate: " + line);
                 foreach (string line in r.SketchReport) Log("sketch: " + line);
+                foreach (string line in r.BearingReport) Log("bearing: " + line);
                 try { using (var k = Registry.CurrentUser.CreateSubKey(GearSetForm.RegistryKey)) if (k != null) k.SetValue("LastFolder", r.Folder); } catch { }
                 string mateText = !addMates ? "No mates added (unticked)." :
                     r.MatesAdded == r.MatesWanted ? "Mates: all " + r.MatesAdded + " added - drag the sun to animate." + (r.MotionStudy != null ? "\n" + r.MotionStudy : "")
                                                     + "\n" + SketchText(r)
                                                   : "Mates: " + r.MatesAdded + " of " + r.MatesWanted + " added:\n" + string.Join("\n", r.MateReport.ToArray());
+                string bearingText = r.BearingReport.Count == 0 ? "" : "\nBearings:\n" + string.Join("\n", r.BearingReport.ToArray());
                 message = "Gear set " + model.Name + " built.\n\n" + string.Join("\n", r.Files.ConvertAll(p => Path.GetFileName(p)).ToArray())
-                        + "\n\nin " + r.Folder + "\n\n" + mateText + "\n\n" + model.DimensionsText();
+                        + "\n\nin " + r.Folder + "\n\n" + mateText + bearingText + "\n\n" + model.DimensionsText();
                 return true;
             }
             catch (Exception ex)

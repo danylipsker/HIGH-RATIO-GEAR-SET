@@ -61,6 +61,10 @@ namespace GearSet
         };
         private readonly CheckBox _mates = new CheckBox { Text = "mates, so the assembly animates (drag the sun) + Motion Study", AutoSize = true, Checked = true };
         private readonly CheckBox _housing = new CheckBox { Text = "housing with bearings (covers, shell, output cup)", AutoSize = true, Checked = true };
+        // catalogue bearing parts (BearingLibrary): files or folders of .SLDPRT, ';' separated; blank = plain rings
+        private readonly TextBox _bearings = new TextBox { Width = 560 };
+        private readonly Button _bearingsBrowse = new Button { Text = "...", Width = 32 };
+        private List<Bearing> _catalogue; private string _catalogueFor;
         private readonly TextBox _folder = new TextBox { Width = 420 };
         private readonly Button _browse = new Button { Text = "...", Width = 32 };
         private readonly Button _build = new Button { Text = "Build SOLIDWORKS files", Width = 190, Height = 32, Enabled = false, Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
@@ -182,6 +186,12 @@ namespace GearSet
             advGeom.Controls.Add(Plain("     backlash")); advGeom.Controls.Add(_backlash); advGeom.Controls.Add(Plain("mm"));
             advGeom.Controls.Add(Plain("     root fillet")); advGeom.Controls.Add(_fillet); advGeom.Controls.Add(Plain("x module"));
             adv.Controls.Add(advGeom);
+            var advBearings = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
+            advBearings.Controls.Add(Bold("Bearings from catalogue parts:"));
+            _bearings.Margin = new Padding(0, 3, 3, 0); advBearings.Controls.Add(_bearings);
+            advBearings.Controls.Add(_bearingsBrowse);
+            advBearings.Controls.Add(Plain(".SLDPRT files or folders of them, ; separated (every configuration is a bearing); blank = plain rings"));
+            adv.Controls.Add(advBearings);
             var advSet = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
             advSet.Controls.Add(Bold("A set of your own:"));
             advSet.Controls.Add(Plain("Zs Zp Zr1 Zr2 Zf Zo")); advSet.Controls.Add(_set);
@@ -211,8 +221,15 @@ namespace GearSet
             _tips.SetToolTip(_list, "Pick a row: the dimensions, the folder name and the Build button follow it. Double-click a row to build it.");
             _tips.SetToolTip(_set, "Six tooth counts build exactly this set, whatever the ratio box says (e.g. 16 32 115 123 158 155). Clear it to search by ratio.");
             _tips.SetToolTip(_mates, "Coincident / concentric mates for the positions, gear mates with the exact speed ratios to the sun (one degree of freedom left), and a Motion Study 'Sun drive' with a rotary motor on the sun: 60 rpm for 10 s = 10 sun turns");
-            _tips.SetToolTip(_housing, "Front cover with the sun's bearing, shell clamping the fixed ring, output ring extended into a cup with a hub on a large bearing in the rear cover, and the sun's rear bearing inside the hub. Standard 60xx deep-groove bearings.");
+            _tips.SetToolTip(_housing, "Front cover with the sun's bearing, shell clamping the fixed ring, output ring extended into a cup with a hub on a large bearing in the rear cover, and the sun's rear bearing inside the hub. Deep-groove ball bearings: the catalogue parts named under Advanced (the real NSK / GOST parts, picked by bore), else plain 60xx rings.");
+            _tips.SetToolTip(_bearings, "Catalogue bearing parts: .SLDPRT files, or folders of them, separated by ';'. Every configuration of every part is measured once in SolidWorks (bore, OD, width, axis) and remembered; the housing then takes, for each bore, the real part nearest the 60-series size and inserts it in the assembly. Blank = the plain rings the builder makes itself.");
             _housing.CheckedChanged += (s, e) => { if (_candidates.Count > 0) FillList(); };
+            _bearingsBrowse.Click += (s, e) =>
+            {
+                using (var dlg = new FolderBrowserDialog { Description = "A folder of catalogue bearing parts (.SLDPRT); it is added to the list", ShowNewFolderButton = false })
+                    if (dlg.ShowDialog(this) == DialogResult.OK)
+                        _bearings.Text = string.IsNullOrWhiteSpace(_bearings.Text) ? dlg.SelectedPath : _bearings.Text.TrimEnd(';', ' ') + ";" + dlg.SelectedPath;
+            };
 
             _preset.Items.Add("(choose a known set)");
             foreach (var pr in Presets.All) _preset.Items.Add(pr.Name);
@@ -238,9 +255,10 @@ namespace GearSet
             };
             _build.Click += (s, e) => Build();
             _module.TextChanged += (s, e) => { if (_candidates.Count > 0) FillList(); };
-            foreach (var tb in new[] { _faceWidth, _backlash, _fillet })
+            foreach (var tb in new[] { _faceWidth, _backlash, _fillet, _bearings })
                 tb.TextChanged += (s, e) => { if (_candidates.Count > 0) UpdateDimensions(); };
 
+            _bearings.Text = BearingLibrary.DefaultPaths();
             LoadLast();
             Shown += (s, e) => { _module.Focus(); Status("Type the module and the gear ratio, then Find solutions.", false); };
         }
@@ -415,8 +433,21 @@ namespace GearSet
         private GearModel QuickModel(Design d, double m)
         {
             var g = GearModel.Create(d, m, Num(_faceWidth) ?? 0, 0, Num(_backlash) ?? 0, 0, 0, 5.0, 6, SetName(d, m), Num(_fillet) ?? 0.3);
-            if (_housing.Checked) g.AddHousing();
+            if (_housing.Checked) g.AddHousing(CatalogueBearings());
             return g;
+        }
+
+        /// <summary>The catalogue bearing parts as typed under Advanced (files / folders, ';' separated; "" = plain rings).</summary>
+        public string BearingLibraryPaths { get { return _bearings.Text.Trim(); } }
+
+        /// <summary>The catalogue bearings already measured (the cache; no SolidWorks here), so the dimensions shown are
+        /// the ones the build will use. A part not measured yet counts once the first build has scanned it.</summary>
+        private IList<Bearing> CatalogueBearings()
+        {
+            string p = BearingLibraryPaths;
+            if (p.Length == 0) return null;
+            if (_catalogue == null || _catalogueFor != p) { _catalogue = BearingLibrary.FromCache(p).Bearings; _catalogueFor = p; }
+            return _catalogue;
         }
 
         private string SetName(Design d, double m)
@@ -506,6 +537,7 @@ namespace GearSet
                     k.SetValue("LastFaceWidth", _faceWidth.Text);
                     k.SetValue("LastBacklash", _backlash.Text);
                     k.SetValue("LastSunMax", _sunMax.Text);
+                    k.SetValue(BearingLibrary.RegistryValue, _bearings.Text.Trim());
                     string parent = Path.GetDirectoryName(OutputFolder);
                     if (!string.IsNullOrEmpty(parent) && string.IsNullOrEmpty(_outputBase)) k.SetValue("OutputBase", parent);
                 }

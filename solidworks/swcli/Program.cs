@@ -17,6 +17,7 @@ namespace GearSet.Cli
         [STAThread]
         private static int Main(string[] args)
         {
+            try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { /* redirected */ }
             try { return Run(args); }
             catch (Exception ex)
             {
@@ -32,7 +33,9 @@ namespace GearSet.Cli
             Console.WriteLine("GearSetCli solve ... -fillet 0.3 (x module, 0 = sharp)   -dump sun|planet|thinint|thinext|fixed|output  prints the outline");
             Console.WriteLine("GearSetCli test-dialog                     the dialog alone, no SOLIDWORKS");
             Console.WriteLine("GearSetCli build -ratio 500 [-module 1] [-pick 1] [-out <folder>] [-sun N] [-planet N] [-backlash 0.05] [-no-mates] [-no-housing]");
+            Console.WriteLine("                 [-bearings <files;folders>|none]   catalogue bearing parts for the housing (default: the remembered / known ones)");
             Console.WriteLine("                 [-sw 2020] [-new] [-show]   uses the running SOLIDWORKS, or starts one (-new; hidden unless -show)");
+            Console.WriteLine("GearSetCli bearings [-paths <files;folders>] [-cached] [-sw 2020] [-new]   measure (or list, -cached) the catalogue bearings");
         }
 
         private static Dictionary<string, string> Parse(string[] args, out string cmd)
@@ -83,6 +86,27 @@ namespace GearSet.Cli
                 return 0;
             }
             if (cmd == "solve") return Solve(o, null);
+            if (cmd == "bearings")
+            {
+                string paths = Get(o, "paths") ?? BearingLibrary.DefaultPaths();
+                Console.WriteLine("catalogue: " + (paths.Length == 0 ? "(none)" : paths));
+                BearingLibrary lib;
+                if (Get(o, "cached") != null) lib = BearingLibrary.FromCache(paths);
+                else
+                {
+                    bool started;
+                    ISldWorks sw = Connect(Get(o, "sw"), Get(o, "new") != null, out started);
+                    if (started) sw.Visible = false;
+                    try { lib = BearingLibrary.Scan(sw, paths, s => Console.WriteLine("  " + s)); }
+                    finally { if (started) { try { sw.ExitApp(); } catch { } } }
+                }
+                foreach (string line in lib.Report) Console.WriteLine("  " + line);
+                Console.WriteLine("  name            bore      OD   width  axis  part");
+                foreach (Bearing b in lib.Bearings)
+                    Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "  {0,-14} {1,6} {2,7} {3,7}   {4}    {5}", b.Name, b.Bore, b.OD, b.Width, b.Axis, b.Source));
+                Console.WriteLine("  " + lib.Bearings.Count + " bearings");
+                return 0;
+            }
             if (cmd == "build")
             {
                 bool started;
@@ -174,8 +198,11 @@ namespace GearSet.Cli
             Console.WriteLine();
             Console.WriteLine(model.DimensionsText());
             var builder = new GearBuilder(sw) { Progress = s => Console.WriteLine("  " + s) };
+            string bearings = Get(o, "bearings");
+            if (bearings != null) builder.BearingLibraryPaths = bearings.Equals("none", StringComparison.OrdinalIgnoreCase) ? "" : bearings;
             BuildResult r = builder.Build(model, outDir, true, Get(o, "no-mates") == null);
             foreach (string f in r.Files) Console.WriteLine(f);
+            foreach (string line in r.BearingReport) Console.WriteLine("  bearing: " + line);
             foreach (string line in r.MateReport) Console.WriteLine("  mate: " + line);
             foreach (string line in r.SketchReport) Console.WriteLine("  sketch: " + line);
             Console.WriteLine("  sketches checked in SolidWorks: " + r.SketchesChecked + ", problems: " + r.SketchProblems + (r.MotionStudy != null ? "; " + r.MotionStudy : ""));

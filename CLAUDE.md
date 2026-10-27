@@ -10,7 +10,8 @@ path (same geometry, older delivery). Dany is the user; SolidWorks 2020 is insta
 ## Layout
 - `solidworks/addin/` - the **SOLIDWORKS add-in** (C#): `AddIn.cs` (ISwAddin, "Gear Set" tab), `GearSetForm.cs`
   (dialog), `GearMath.cs` (solver + involutes, port of gearset.py, no SOLIDWORKS dependency),
-  `GearBuilder.cs` (parts + assembly through the API), `install.ps1` (build with MSBuild/dotnet, RegAsm).
+  `GearBuilder.cs` (parts + assembly through the API; also `BearingLibrary`, the catalogue bearing parts
+  measured in SolidWorks and cached), `install.ps1` (build with MSBuild/dotnet, RegAsm).
   `solidworks/swcli/GearSetCli.exe` shares the same files: `solve` and `test-dialog` need no SOLIDWORKS,
   `build` drives it. Build + register: `solidworks\addin\install.ps1`. Log: `%TEMP%\GearSetAddin.log`.
   Verified: `solidworks/stubs/compile_check.sh` (Mono, stub interop, 0 errors; run it after every C# change),
@@ -110,6 +111,17 @@ AddMate5 error); the same lines are in %TEMP%\GearSetAddin.log.
   (and `gearset.py` to `py/gear_step/high_ratio_core.py`). Rebuild on the desktop with SolidWorks
   closed: `dotnet build GearGen.slnx` in the GEARS GENERATOR folder (the add-in loads from
   `src\GearGen.SolidWorksAddin\bin\x64\Debug\net48`).
+- Bearings from catalogue parts (2026-10-27, `SESSION-2026-10-25c.md`): Dany's NSK "600 Series" configured part
+  (118 configurations, bore 1..9, axis Z) and the GOST 8338-75 folder (6000..6020 as single files, axis X)
+  under `C:\HARDWARE AND MORE\Bearings` are the default bearing library (`BearingLibrary.KnownFolders`;
+  HKCU `Software\GearSetAddin\BearingLibrary` overrides; the dialog's Advanced field, `-bearings` on the CLI).
+  `GearBuilder.Build` re-lays the housing on the catalogue bearings (`HousingSpec.ForBore(bore, catalogue)`:
+  smallest fitting bore, nearest the 60-series size) and inserts the real parts turned onto the sun axis,
+  box read back; `MateImportedAssembly` swaps the family path's imported bearing solids for exact matches.
+  The measurements are cached per file under `%LOCALAPPDATA%\GearSetAddin\bearings`; `GearSetCli bearings`
+  lists them. Verified on SolidWorks 2020: the 1:500 set built with GOST 6001 / 6008 parts, boxes as
+  expected; the family path's STEP imported, its three bearing solids replaced, 14 mates. Housing bearings
+  below a 10 mm bore come from the NSK part (608 for an 8 mm shaft); 10 mm and up from the GOST files.
 - Fixed today (see `SESSION-2026-10-25c.md`): trailing root fillets drawn the long way round; the flank
   spline doubling the radial line below the base circle; involute (tip) interference (a tip past the
   mate's base-tangent point is shortened automatically, note in the report); the rolling check at 72

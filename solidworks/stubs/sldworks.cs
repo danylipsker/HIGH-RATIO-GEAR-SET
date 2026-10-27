@@ -14,23 +14,37 @@ namespace SolidWorks.Interop.sldworks
         bool Visible { get; set; }
         void ExitApp();
         object ActiveDoc { get; }
+        object GetMathUtility();
     }
     public interface IModelDoc2
     {
         SketchManager SketchManager { get; }
         FeatureManager FeatureManager { get; }
         ModelDocExtension Extension { get; }
+        ConfigurationManager ConfigurationManager { get; }
         object FirstFeature();
         object SelectionManager { get; }
         void ClearSelection2(bool all);
         void SketchAddConstraints(string constraint);
         string GetTitle();
         bool ForceRebuild3(bool topOnly);
+        bool EditRebuild3();
+        void EditDelete();
         void ShowNamedView2(string name, int viewId);
         void ViewZoomtofit2();
         EquationMgr GetEquationMgr();
+        object GetConfigurationNames();
+        bool ShowConfiguration2(string name);
     }
     public interface ModelDoc2 : IModelDoc2 { }
+    public interface IConfigurationManager { Configuration ActiveConfiguration { get; } }
+    public interface ConfigurationManager : IConfigurationManager { }
+    public interface IConfiguration { string Name { get; } }
+    public interface Configuration : IConfiguration { }
+    public interface IMathUtility { object CreateTransform(object arrayData); }
+    public interface MathUtility : IMathUtility { }
+    public interface IMathTransform { object ArrayData { get; } }
+    public interface MathTransform : IMathTransform { }
     public interface ISketchManager
     {
         bool InsertSketch(bool updateEditRebuild);
@@ -60,7 +74,8 @@ namespace SolidWorks.Interop.sldworks
     public interface SketchSegment : ISketchSegment { }
     public interface ISketchArc { object GetNormalVector(); }
     public interface SketchArc : ISketchArc { }
-    public interface IPartDoc { object GetBodies2(int bodyType, bool visibleOnly); }
+    public interface IPartDoc { object GetBodies2(int bodyType, bool visibleOnly); object GetPartBox(bool useHiddenBodies); }
+    public interface PartDoc : IPartDoc { }
     public interface IBody2 { object GetBodyBox(); object GetFaces(); }
     public interface Body2 : IBody2 { }
     public interface IAssemblyDoc
@@ -73,7 +88,12 @@ namespace SolidWorks.Interop.sldworks
         bool UnfixComponent();
         object GetComponents(bool topLevelOnly);
     }
-    public interface IComponent2 { string Name2 { get; } object GetBodies3(int bodyType, out object bodyInfo); object FirstFeature(); bool Select4(bool append, SelectData data, bool invertSelection); object GetBox(bool includeRefPlanes, bool includeSketches); bool IsFixed(); }
+    public interface IComponent2
+    {
+        string Name2 { get; } object GetBodies3(int bodyType, out object bodyInfo); object FirstFeature(); bool Select4(bool append, SelectData data, bool invertSelection);
+        object GetBox(bool includeRefPlanes, bool includeSketches); bool IsFixed();
+        MathTransform Transform2 { get; set; } string ReferencedConfiguration { get; set; } string GetPathName();
+    }
     public interface IEntity { bool Select4(bool append, SelectData data); }
     public interface Entity : IEntity { }
     public interface ISelectData { int Mark { get; set; } }

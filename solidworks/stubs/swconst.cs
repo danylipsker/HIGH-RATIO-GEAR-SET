@@ -5,7 +5,7 @@ namespace SolidWorks.Interop.swconst
     public enum swEndConditions_e { swEndCondBlind = 0 }
     public enum swAddComponentConfigOptions_e { swAddComponentConfigOptions_CurrentSelectedConfig = 0 }
     public enum swDocumentTypes_e { swDocPART = 1, swDocASSEMBLY = 2, swDocDRAWING = 3 }
-    public enum swOpenDocOptions_e { swOpenDocOptions_Silent = 1 }
+    public enum swOpenDocOptions_e { swOpenDocOptions_Silent = 1, swOpenDocOptions_ReadOnly = 2 }
     public enum swSaveAsVersion_e { swSaveAsCurrentVersion = 0 }
     public enum swSaveAsOptions_e { swSaveAsOptions_Silent = 1 }
     public enum swCustomInfoType_e { swCustomInfoText = 30 }
