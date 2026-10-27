@@ -53,7 +53,7 @@ formula   : -500.000000000   difference 5.12e-13
 |---|---|---|---|---|---|---|---|---|---|
 | sun | external | 16 | +0.0000 | 8.0000 | 7.5175 | 9.0000 | 6.7500 | 0.300 | 0.0000 |
 | planet | external | 18 | +0.0000 | 9.0000 | 8.4572 | 10.0000 | 7.7500 | 0.300 | 10.0000 |
-| thin_ring_internal | internal | 96 | +0.0000 | 48.0000 | 45.1052 | 47.0000 | 49.2500 | 0.300 | 0.0000 |
+| thin_ring_internal | internal | 96 | +0.0000 | 48.0000 | 45.1052 | 47.0862 | 49.2500 | 0.300 | 0.0000 |
 | thin_ring_external | external | 123 | +0.0000 | 61.5000 | 57.7911 | 62.5000 | 60.2500 | 0.300 | 0.0000 |
 | fixed_ring | internal | 167 | +0.0000 | 83.5000 | 78.4643 | 82.5000 | 84.7500 | 0.300 | 1.0778 |
 | output_ring | internal | 164 | +1.8376 | 82.0000 | 77.0548 | 82.8376 | 85.0876 | 0.300 | 2.1951 |
@@ -65,7 +65,7 @@ Positions in the assembly (mm): sun at (0,0), planet at (17.0000, 0), thin ring 
 | mesh | transverse contact ratio |
 |---|---|
 | sun/planet | 1.514 |
-| planet/thin ring internal | 1.851 |
+| planet/thin ring internal | 1.748 |
 | thin ring external/fixed ring | 1.977 |
 | thin ring external/output ring | 1.361 |
 
@@ -77,9 +77,13 @@ one tooth outline into the mating one; negative = minimum clearance, positive = 
 | mesh | worst penetration (mm) |
 |---|---|
 | sun/planet | -0.0000 |
-| planet/thin ring internal | +0.0020 |
+| planet/thin ring internal | +0.0004 |
 | thin ring external/fixed ring | +0.0005 |
 | thin ring external/output ring | +0.0002 |
+
+**Warnings**
+
+- thin_ring_internal: tip shortened by 0.086 mm - it reached 0.036 mm past the base-tangent point of the planet (involute interference); contact ratio recomputed with the shorter tip
 
 ## Axial layout
 

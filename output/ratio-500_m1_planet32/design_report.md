@@ -76,7 +76,7 @@ one tooth outline into the mating one; negative = minimum clearance, positive = 
 
 | mesh | worst penetration (mm) |
 |---|---|
-| sun/planet | -0.0002 |
+| sun/planet | -0.0001 |
 | planet/thin ring internal | +0.0003 |
 | thin ring external/fixed ring | +0.0004 |
 | thin ring external/output ring | +0.0001 |

@@ -27,7 +27,7 @@
 "TipRadius_planet" = 10.000000
 "RootRadius_planet" = 7.750000
 "Phase_thin_ring_internal_deg" = 0.000000
-"TipRadius_thin_ring_internal" = 47.000000
+"TipRadius_thin_ring_internal" = 47.086224
 "RootRadius_thin_ring_internal" = 49.250000
 "Phase_thin_ring_external_deg" = 0.000000
 "TipRadius_thin_ring_external" = 62.500000

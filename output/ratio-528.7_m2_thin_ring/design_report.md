@@ -79,7 +79,7 @@ one tooth outline into the mating one; negative = minimum clearance, positive = 
 | sun/planet | -0.0001 |
 | planet/thin ring internal | +0.0007 |
 | thin ring external/fixed ring | +0.0015 |
-| thin ring external/output ring | +0.0003 |
+| thin ring external/output ring | +0.0004 |
 
 ## Axial layout
 
