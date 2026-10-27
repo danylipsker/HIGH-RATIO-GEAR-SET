@@ -175,9 +175,11 @@ namespace GearSet
                 builder.Progress = s => Log(s);
                 BuildResult r = builder.Build(model, folder, true, addMates);
                 foreach (string line in r.MateReport) Log("mate: " + line);
+                foreach (string line in r.SketchReport) Log("sketch: " + line);
                 try { using (var k = Registry.CurrentUser.CreateSubKey(GearSetForm.RegistryKey)) if (k != null) k.SetValue("LastFolder", r.Folder); } catch { }
                 string mateText = !addMates ? "No mates added (unticked)." :
                     r.MatesAdded == r.MatesWanted ? "Mates: all " + r.MatesAdded + " added - drag the sun to animate." + (r.MotionStudy != null ? "\n" + r.MotionStudy : "")
+                                                    + "\n" + SketchText(r)
                                                   : "Mates: " + r.MatesAdded + " of " + r.MatesWanted + " added:\n" + string.Join("\n", r.MateReport.ToArray());
                 message = "Gear set " + model.Name + " built.\n\n" + string.Join("\n", r.Files.ConvertAll(p => Path.GetFileName(p)).ToArray())
                         + "\n\nin " + r.Folder + "\n\n" + mateText + "\n\n" + model.DimensionsText();
@@ -247,5 +249,15 @@ namespace GearSet
                 hkcu.DeleteSubKeyTree(@"Software\SolidWorks\Addins\" + key, false);
             }
         }
-    }
+    
+        /// <summary>What SolidWorks reported about every profile sketch of the build (GearBuilder.VerifySketch).</summary>
+        private static string SketchText(GearSet.BuildResult r)
+        {
+            if (r.SketchesChecked == 0) return "Sketches: not checked.";
+            if (r.SketchProblems == 0) return "Sketches: all " + r.SketchesChecked + " checked in SolidWorks - each tooth profile one closed contour, no stray lines.";
+            var bad = new System.Collections.Generic.List<string>();
+            foreach (string line in r.SketchReport) if (line.Contains("PROBLEM")) bad.Add(line);
+            return "Sketches: " + r.SketchProblems + " of " + r.SketchesChecked + " with a problem:\n" + string.Join("\n", bad.ToArray());
+        }
+}
 }

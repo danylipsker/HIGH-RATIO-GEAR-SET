@@ -42,7 +42,9 @@ namespace SolidWorks.Interop.sldworks
         SketchSegment CreateSpline2(object pointData, bool simulateNaturalEnds);
     }
     public interface SketchManager : ISketchManager { }
-    public interface ISketch { }
+    public interface ISketch { object GetSketchSegments(); object GetSketchContours(); }
+    public interface ISketchContour { bool IsClosed(); }
+    public interface SketchContour : ISketchContour { }
     public interface Sketch : ISketch { }
     public interface IFeature { bool Select2(bool append, int mark); string GetTypeName2(); object GetNextFeature(); }
     public interface Feature : IFeature { }
@@ -53,7 +55,7 @@ namespace SolidWorks.Interop.sldworks
             bool merge, bool useFeatScope, bool useAutoSelect, int t0, double startOffset, bool flipStartOffset);
     }
     public interface FeatureManager : IFeatureManager { }
-    public interface ISketchSegment { }
+    public interface ISketchSegment { int GetType(); }
     public interface SketchSegment : ISketchSegment { }
     public interface ISketchArc { object GetNormalVector(); }
     public interface SketchArc : ISketchArc { }

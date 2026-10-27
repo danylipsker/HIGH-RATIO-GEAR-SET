@@ -23,6 +23,8 @@ namespace GearSet
         public int MatesAdded, MatesWanted;
         public List<string> MateReport = new List<string>();
         public string MotionStudy;              // what the Motion Study got, null = none
+        public List<string> SketchReport = new List<string>();   // one line per profile sketch, as SolidWorks saw it
+        public int SketchesChecked, SketchProblems;
     }
 
     public class GearBuilder
@@ -39,6 +41,11 @@ namespace GearSet
         public bool AddMotor = true;
         public double MotorRpm = 60, MotorSeconds = 10;
         private IFace2 _sunFace;                    // the sun's input stub, found by AddMates, the motor's face
+        // what AddOutline put into the sketch being drawn, so Extrude can ask SolidWorks whether it got exactly that
+        private int _expOutlines, _expArcs, _expFillets, _expLines, _expSplines, _expTeeth;
+        private string _expName = "";
+        private readonly List<string> _sketchReport = new List<string>();
+        private int _sketchesChecked, _sketchProblems;
 
         public GearBuilder(ISldWorks sw)
         {
@@ -56,6 +63,7 @@ namespace GearSet
         {
             Directory.CreateDirectory(outDir);
             var res = new BuildResult { Folder = outDir };
+            _sketchReport.Clear(); _sketchesChecked = 0; _sketchProblems = 0;
             Say("calibrating API direction conventions");
             Calibrate();
             Say("calibration: dirFlip=" + _dirFlip + " offFlip=" + _offFlip + " arcCCW=" + _arcCcw);
@@ -94,7 +102,8 @@ namespace GearSet
                     try { _sw.CloseDoc(p); } catch { /* keep going */ }
                 }
             }
-            Say("done: " + res.Files.Count + " files in " + outDir);
+            res.SketchReport.AddRange(_sketchReport); res.SketchesChecked = _sketchesChecked; res.SketchProblems = _sketchProblems;
+            Say("done: " + res.Files.Count + " files in " + outDir + "; profile sketches checked in SolidWorks: " + _sketchesChecked + ", problems: " + _sketchProblems);
             return res;
         }
 
@@ -656,6 +665,7 @@ namespace GearSet
             sm.InsertSketch(true);
             sm.AddToDB = true;
             sm.DisplayWhenAdded = false;
+            _expOutlines = 0; _expArcs = 0; _expFillets = 0; _expLines = 0; _expSplines = 0; _expTeeth = 0; _expName = "";
         }
 
         /// <summary>Close the active sketch and extrude it: depth / offset in mm towards +Z (reverse: towards -Z).</summary>
@@ -663,6 +673,7 @@ namespace GearSet
         {
             SketchManager sm = doc.SketchManager;
             Sketch sk = sm.ActiveSketch;
+            VerifySketch(doc, sk);
             sm.AddToDB = false;
             sm.DisplayWhenAdded = true;
             sm.InsertSketch(true);
@@ -684,6 +695,7 @@ namespace GearSet
         private void AddOutline(IModelDoc2 doc, GearGeom g, double cxMm, double cyMm)
         {
             SketchManager sm = doc.SketchManager;
+            _expOutlines++; _expTeeth += g.Z; _expName = g.Name;
             for (int k = 0; k < g.Z; k++)
             {
                 foreach (Segment seg in g.ToothSegments(k, NFlank))
@@ -692,6 +704,7 @@ namespace GearSet
                     {
                         case SegKind.Arc:
                             if (seg.Theta[1] - seg.Theta[0] < 1e-7) break;
+                            _expArcs++;
                             sm.CreateArc(cxMm / 1000, cyMm / 1000, 0,
                                 (cxMm + seg.Rho[0] * Math.Cos(seg.Theta[0])) / 1000, (cyMm + seg.Rho[0] * Math.Sin(seg.Theta[0])) / 1000, 0,
                                 (cxMm + seg.Rho[1] * Math.Cos(seg.Theta[1])) / 1000, (cyMm + seg.Rho[1] * Math.Sin(seg.Theta[1])) / 1000, 0,
@@ -700,6 +713,7 @@ namespace GearSet
                         case SegKind.Fillet:
                             {
                                 int last = seg.Rho.Length - 1;
+                                _expFillets++;
                                 sm.CreateArc((cxMm + seg.Cx) / 1000, (cyMm + seg.Cy) / 1000, 0,
                                     (cxMm + seg.Rho[0] * Math.Cos(seg.Theta[0])) / 1000, (cyMm + seg.Rho[0] * Math.Sin(seg.Theta[0])) / 1000, 0,
                                     (cxMm + seg.Rho[last] * Math.Cos(seg.Theta[last])) / 1000, (cyMm + seg.Rho[last] * Math.Sin(seg.Theta[last])) / 1000, 0,
@@ -707,6 +721,7 @@ namespace GearSet
                             }
                             break;
                         case SegKind.Line:
+                            _expLines++;
                             sm.CreateLine(
                                 (cxMm + seg.Rho[0] * Math.Cos(seg.Theta[0])) / 1000, (cyMm + seg.Rho[0] * Math.Sin(seg.Theta[0])) / 1000, 0,
                                 (cxMm + seg.Rho[1] * Math.Cos(seg.Theta[1])) / 1000, (cyMm + seg.Rho[1] * Math.Sin(seg.Theta[1])) / 1000, 0);
@@ -721,12 +736,71 @@ namespace GearSet
                                 pts[3 * i + 2] = 0;
                             }
                             object pointData = pts;
+                            _expSplines++;
                             SketchSegment s = sm.CreateSpline2(pointData, false);
                             if (s == null) throw new InvalidOperationException("CreateSpline2 failed on " + g.Name);
                             break;
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Ask SolidWorks what the sketch just drawn contains and compare it with what AddOutline put in: the
+        /// entity counts by type (lines, arcs, splines) and the contours. A tooth profile must come back as ONE
+        /// closed contour - a continuous chain - plus one contour per circle (bore, rim, holes), with no straight
+        /// line beyond the radial ones of a small pinion, no extra or missing entity. Every sketch of the build is
+        /// checked this way; the report goes to BuildResult.SketchReport and the log.
+        /// </summary>
+        private void VerifySketch(IModelDoc2 doc, Sketch sk)
+        {
+            if (sk == null) return;
+            try
+            {
+                object[] segs = sk.GetSketchSegments() as object[];
+                int lines = 0, arcs = 0, splines = 0, other = 0;
+                if (segs != null)
+                    foreach (object o in segs)
+                    {
+                        int t = ((ISketchSegment)o).GetType();
+                        if (t == (int)swSketchSegments_e.swSketchLINE) lines++;
+                        else if (t == (int)swSketchSegments_e.swSketchARC) arcs++;
+                        else if (t == (int)swSketchSegments_e.swSketchSPLINE) splines++;
+                        else other++;
+                    }
+                object[] contours = sk.GetSketchContours() as object[];
+                int closed = 0, open = 0;
+                if (contours != null)
+                    foreach (object o in contours)
+                    {
+                        if (((ISketchContour)o).IsClosed()) closed++; else open++;
+                    }
+                int circles = arcs - _expArcs - _expFillets;                    // whole circles the caller added (bores, rims, holes)
+                int expectedContours = _expOutlines + circles;
+                var problems = new List<string>();
+                if (_expOutlines > 0)
+                {
+                    if (lines != _expLines) problems.Add("straight lines " + lines + " (expected " + _expLines + (_expLines == 0 ? ", none belong to this profile" : ", the radial stretches below the base circle") + ")");
+                    if (splines != _expSplines) problems.Add("flank splines " + splines + " (expected " + _expSplines + ")");
+                    if (circles < 0) problems.Add("arcs " + arcs + " (expected at least " + (_expArcs + _expFillets) + ")");
+                    if (other > 0) problems.Add(other + " entities of another type");
+                }
+                if (open > 0) problems.Add(open + " open contour" + (open == 1 ? "" : "s") + " - the chain is broken somewhere");
+                if (closed != expectedContours) problems.Add("closed contours " + closed + " (expected " + expectedContours + ": " + (_expOutlines > 0 ? "the tooth profile as one chain" : "") + (circles > 0 ? (_expOutlines > 0 ? " + " : "") + circles + " circle" + (circles == 1 ? "" : "s") : "") + ")");
+                string what = _expOutlines > 0
+                    ? _expName + " profile (" + _expTeeth + " teeth): " + splines + " flank splines, " + _expFillets + " fillet arcs, " + _expArcs + " root/tip arcs, " + lines + " straight lines" + (circles > 0 ? ", " + circles + " circle" + (circles == 1 ? "" : "s") : "")
+                    : "plain sketch: " + circles + " circle" + (circles == 1 ? "" : "s") + (lines > 0 ? ", " + lines + " lines" : "");
+                _sketchesChecked++;
+                if (problems.Count == 0)
+                    _sketchReport.Add(what + " -> " + closed + " closed contour" + (closed == 1 ? "" : "s") + ", chain continuous, nothing stray");
+                else
+                {
+                    _sketchProblems++;
+                    _sketchReport.Add(what + " -> PROBLEM: " + string.Join("; ", problems.ToArray()));
+                }
+                Log.Add("sketch check: " + _sketchReport[_sketchReport.Count - 1]);
+            }
+            catch (Exception ex) { _sketchReport.Add("sketch check failed to run: " + ex.Message); Log.Add("sketch check: " + ex); }
         }
 
         private string Finish(IModelDoc2 doc, GearModel g, string name, int teeth, double x, string outDir)

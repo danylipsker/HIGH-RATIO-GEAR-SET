@@ -18,3 +18,5 @@ namespace SolidWorks.Interop.swconst
     public enum swMessageBoxIcon_e { swMbWarning = 1, swMbInformation = 2 }
     public enum swMessageBoxBtn_e { swMbOk = 2 }
 }
+
+namespace SolidWorks.Interop.swconst { public enum swSketchSegments_e { swSketchLINE = 0, swSketchARC = 1, swSketchELLIPSE = 2, swSketchSPLINE = 3, swSketchTEXT = 4, swSketchPARABOLA = 5 } }
